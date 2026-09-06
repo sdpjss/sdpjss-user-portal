@@ -15,6 +15,8 @@ const TransactionStatusModal = ({
   status,
   message,
   receiptData,
+  followUpAction,
+  onFollowUp,
 }) => {
   const receiptRef = useRef(null); // *** NEW: Ref for the receipt container ***
 
@@ -55,7 +57,7 @@ const TransactionStatusModal = ({
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md text-center p-8 transform transition-all scale-100">
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-8 text-center shadow-2xl transform transition-all scale-100">
         {isSuccess ? (
           <CheckCircle className="mx-auto h-20 w-20 text-green-500" />
         ) : (
@@ -89,6 +91,24 @@ const TransactionStatusModal = ({
             <p className="text-xs text-gray-500 mt-4">
               A detailed receipt can be printed or downloaded below.
             </p>
+          </div>
+        )}
+
+        {isSuccess && followUpAction && onFollowUp && (
+          <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-left">
+            <p className="text-sm font-semibold text-amber-900">
+              {followUpAction.title}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-amber-800">
+              {followUpAction.message}
+            </p>
+            <button
+              type="button"
+              onClick={onFollowUp}
+              className="mt-3 w-full rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700"
+            >
+              {followUpAction.label}
+            </button>
           </div>
         )}
 
