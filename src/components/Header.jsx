@@ -2,59 +2,20 @@ import { useContext, useState } from "react";
 import { assets } from "../assets/assets";
 import { useNavigate } from "react-router-dom";
 import { AppContext } from "../context/AppContext";
-import DonationModal from "../components/modalbox/DonationModal"; // Import the DonationModal component
 import { useEffect } from "react";
-
-import TransactionStatusModal from "../components/modalbox/TransactionStatusModal";
+import { useDonationFlow } from "../context/DonationFlowContext";
 
 const Header = () => {
-  const { setState, utoken, backendUrl, userData } =
-    useContext(AppContext);
+  const { setState, utoken, userData } = useContext(AppContext);
+  const { openDonation } = useDonationFlow();
   const navigate = useNavigate();
-
-  // Modal state for DonationModal
-  const [showDonationModal, setShowDonationModal] = useState(false);
   const [showWave, setShowWave] = useState(false);
-
-  const [transaction, setTransaction] = useState({
-    isOpen: false,
-    status: "",
-    message: "",
-    receiptData: null,
-  });
 
   useEffect(() => {
     if (utoken) {
       setTimeout(() => setShowWave(true), 500);
     }
   }, [utoken]);
-
-  // Handle donation button click
-  const handleDonationClick = () => {
-    if (utoken) {
-      setShowDonationModal(true);
-    } else {
-      // If user is not logged in, redirect to login page
-      setState("Login");
-      navigate("/login");
-    }
-  };
-  const handleTransactionComplete = (result) => {
-    setTransaction({
-      isOpen: true,
-      status: result.status,
-      message: result.message,
-      receiptData: result.receiptData,
-    });
-  };
-
-  // Close donation modal
-  const closeDonationModal = () => {
-    setShowDonationModal(false);
-  };
-  const closeTransactionModal = () => {
-    setTransaction({ ...transaction, isOpen: false });
-  };
 
   return (
     <div
@@ -112,7 +73,7 @@ const Header = () => {
             )}
             <button
               className="px-6 py-3 bg-transparent border-2 border-white text-white hover:bg-white hover:text-primary rounded-full font-medium text-lg flex items-center justify-center transition-all duration-300"
-              onClick={handleDonationClick}
+              onClick={openDonation}
             >
               Donate Now{" "}
               <img className=" ml-2 w-3" src={assets.arrow_icon} alt="" />
@@ -121,23 +82,6 @@ const Header = () => {
         </div>
       </div>
 
-      {/* DonationModal Component */}
-      <DonationModal
-        isOpen={showDonationModal}
-        onClose={closeDonationModal}
-        backendUrl={backendUrl} // You may need to get this from context or props
-        userToken={utoken}
-        onTransactionComplete={handleTransactionComplete}
-      />
-
-      {/* Render the TransactionStatusModal here */}
-      <TransactionStatusModal
-        isOpen={transaction.isOpen}
-        onClose={closeTransactionModal}
-        status={transaction.status}
-        message={transaction.message}
-        receiptData={transaction.receiptData}
-      />
     </div>
   );
 };

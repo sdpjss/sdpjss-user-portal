@@ -262,9 +262,33 @@ const UserPortal = () => {
     );
   }
 
+  const coreFeatures = [
+    { _id: "core-profile", featureName: "My Profile", link: "/profile" },
+    {
+      _id: "core-donations",
+      featureName: "Donation History",
+      link: "/donations",
+    },
+  ].map(
+    (coreFeature) =>
+      features.find((feature) => feature.link === coreFeature.link) ||
+      coreFeature
+  );
+  const optionalFeatures = features
+    .filter(
+      (feature) =>
+        !coreFeatures.some(
+          (coreFeature) => coreFeature.link === feature.link
+        )
+    )
+    .sort((first, second) =>
+      first.featureName.localeCompare(second.featureName)
+    );
+  const orderedFeatures = [...coreFeatures, ...optionalFeatures];
+
   // Generate routes dynamically from features
   const generateRoutes = () => {
-    const routes = features.map((feature) => {
+    const routes = orderedFeatures.map((feature) => {
       const Component =
         componentMap[feature.link] ||
         (() => (
@@ -284,7 +308,8 @@ const UserPortal = () => {
     });
 
     // Add fallback route - redirect to first available feature or profile
-    const fallbackRoute = features.length > 0 ? features[0].route : "profile";
+    const fallbackRoute =
+      orderedFeatures.length > 0 ? orderedFeatures[0].link : "/profile";
     const FallbackComponent = componentMap[fallbackRoute] || ProfileSection;
 
     routes.push(
@@ -295,28 +320,36 @@ const UserPortal = () => {
   };
 
   return (
-    <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-      <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6">
-        <div
-          className="flex gap-1 sm:gap-2 overflow-x-auto py-4"
-          style={{ msOverflowStyle: "none", scrollbarWidth: "none" }}
-        >
-          <div className="flex gap-1 sm:gap-2 min-w-max">
-            {features.map((feature) => (
-              <NavLink
-                key={feature._id}
-                to={`/user-portal${feature.link}`}
-                className={({ isActive }) =>
-                  `px-4 py-2 rounded-lg font-medium transition-colors whitespace-nowrap ${
-                    isActive
-                      ? "bg-red-100 text-red-700"
-                      : "text-gray-600 hover:text-gray-900"
-                  }`
-                }
-              >
-                {feature.featureName}
-              </NavLink>
-            ))}
+    <div className="bg-white border-b border-gray-200">
+      <div className="sticky top-0 z-10 border-b border-gray-200 bg-white">
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6">
+          {orderedFeatures.length > 3 && (
+            <p className="pt-2 text-center text-xs text-gray-500 sm:hidden">
+              Swipe sideways to see more portal sections
+            </p>
+          )}
+          <div
+            className="flex snap-x gap-1 overflow-x-auto py-3 sm:gap-2 sm:py-4"
+            style={{ msOverflowStyle: "none", scrollbarWidth: "none" }}
+            aria-label="User portal sections"
+          >
+            <div className="flex gap-1 sm:gap-2 min-w-max">
+              {orderedFeatures.map((feature) => (
+                <NavLink
+                  key={feature._id}
+                  to={`/user-portal${feature.link}`}
+                  className={({ isActive }) =>
+                    `snap-start px-4 py-2 rounded-lg font-medium transition-colors whitespace-nowrap ${
+                      isActive
+                        ? "bg-red-100 text-red-700"
+                        : "text-gray-600 hover:text-gray-900"
+                    }`
+                  }
+                >
+                  {feature.featureName}
+                </NavLink>
+              ))}
+            </div>
           </div>
         </div>
       </div>

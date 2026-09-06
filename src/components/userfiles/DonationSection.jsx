@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import html2pdf from "html2pdf.js"; // <-- ADDED
 import { AppContext } from "../../context/AppContext";
+import { useDonationFlow } from "../../context/DonationFlowContext";
 import DonationReceiptTemplate from "../DonationReceiptTemplate";
 import PrasadTokenTemplate from "../PrasadTokenTemplate";
 
@@ -23,6 +24,7 @@ import PrasadTokenTemplate from "../PrasadTokenTemplate";
 
 const DonationSection = () => {
   const { donations, donationsLoading, userData, childUsers, childUsersLoading } = useContext(AppContext);
+  const { openDonation } = useDonationFlow();
   const receiptRef = useRef(null); // <-- ADDED for PDF generation
   const [receiptData, setReceiptData] = useState(null); // <-- ADDED state to hold data for donation receipt PDF
   const [tokenData, setTokenData] = useState(null); // <-- ADDED state to hold data for prasad token PDF
@@ -216,6 +218,10 @@ const DonationSection = () => {
   // Function to determine if prasad collection mode is local pickup
   // Adjust the logic based on actual address formats used
 
+  const isPratimaDonation = (donation) =>
+    donation?.donationType === "maa_durga_pratima" ||
+    donation?.list?.some((item) => item.category === "Maa Durga Pratima");
+
   const prasadCollectionModeAsLocalPickup = (donation) => {
     const address = donation.postalAddress.toLowerCase();
     if (address === "will collect from durga sthan") {
@@ -230,7 +236,8 @@ const DonationSection = () => {
   };
 
   const shouldShowPrasadTokenButton = (donation) => {
-    return prasadCollectionModeAsLocalPickup(donation)
+    return !isPratimaDonation(donation)
+      && prasadCollectionModeAsLocalPickup(donation)
       && import.meta.env.VITE_SHOW_PRASAD_TOKEN_DOWNLOAD_BUTTON === "true";
   };
 
@@ -286,13 +293,23 @@ const DonationSection = () => {
   return (
     <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">
-          Donation History
-        </h1>
-        <p className="text-gray-600">
-          Track your contributions and make a difference in the world
-        </p>
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            Donation History
+          </h1>
+          <p className="text-gray-600">
+            View and download records of your contributions.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={openDonation}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-red-600 px-5 py-3 font-semibold text-white hover:bg-red-700 sm:w-auto"
+        >
+          <Heart className="h-5 w-5" />
+          Make a Donation
+        </button>
       </div>
 
       {/* Summary Cards */}
@@ -512,7 +529,8 @@ const DonationSection = () => {
                 {/* Footer and Download Button */}
                 <div className="border-t pt-4 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
                   <div className="flex-grow">
-                    {donation.paymentStatus === "completed" && (
+                    {donation.paymentStatus === "completed" &&
+                      !isPratimaDonation(donation) && (
                       <>
                         <div className="flex items-center text-sm text-gray-600 mt-1">
                           <Package className="w-4 h-4 mr-1" /> Mahaprasad: {" "}

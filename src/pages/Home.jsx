@@ -5,6 +5,7 @@ import Notice from "../components/Notice";
 import AccountStatusModal from "../components/modalbox/ApprovalStatusModal";
 import ServicesGallery from "../components/ServiceGallery";
 import { AppContext } from "../context/AppContext";
+import MaaDurgaPratimaDonationCard from "../components/MaaDurgaPratimaDonationCard";
 
 const Home = () => {
   const { utoken } = useContext(AppContext);
@@ -14,6 +15,7 @@ const Home = () => {
       <AccountStatusModal />
 
       <Header />
+      <MaaDurgaPratimaDonationCard />
       <Notice />
       {utoken && <StepsMenu />}
       <ServicesGallery />

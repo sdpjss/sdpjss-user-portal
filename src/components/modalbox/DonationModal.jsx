@@ -16,12 +16,149 @@ import {
 } from "lucide-react";
 import { AppContext } from "../../context/AppContext";
 
+const emptyDeliveryAddress = {
+  currlocation: "",
+  country: "",
+  state: "",
+  district: "",
+  city: "",
+  postoffice: "",
+  pin: "",
+  landmark: "",
+  street: "",
+  apartment: "",
+  floor: "",
+  room: "",
+};
+
+const deliveryLocationOptions = [
+  { value: "in_manpur", label: "In Manpur", courierAvailable: false },
+  {
+    value: "in_gaya_outside_manpur",
+    label: "In Gaya outside Manpur",
+    courierAvailable: false,
+  },
+  { value: "in_bihar_outside_gaya", label: "In Bihar outside Gaya" },
+  { value: "in_india_outside_bihar", label: "In India outside Bihar" },
+  { value: "outside_india", label: "Outside India" },
+];
+
+const courierUnavailableLocations = new Set(
+  deliveryLocationOptions
+    .filter(({ courierAvailable }) => courierAvailable === false)
+    .map(({ value }) => value)
+);
+
+const deliveryAddressFields = [
+  { name: "country", label: "Country", required: true },
+  { name: "state", label: "State", required: true },
+  { name: "district", label: "District" },
+  { name: "city", label: "City", required: true },
+  { name: "postoffice", label: "Post Office" },
+  { name: "pin", label: "PIN Code", required: true },
+  { name: "street", label: "Street Address", required: true },
+];
+
+const AnchoredSelect = ({
+  value,
+  options,
+  placeholder,
+  onChange,
+  disabled = false,
+  className = "",
+  buttonClassName = "",
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const selectRef = useRef(null);
+  const selectedOption = options.find((option) => option.value === value);
+
+  useEffect(() => {
+    const closeOnOutsideClick = (event) => {
+      if (!selectRef.current?.contains(event.target)) setIsOpen(false);
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    return () =>
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+  }, []);
+
+  return (
+    <div ref={selectRef} className={"relative " + className}>
+      <button
+        type="button"
+        onClick={() => setIsOpen((current) => !current)}
+        className={
+          "flex w-full items-center justify-between gap-2 bg-white text-left " +
+          buttonClassName
+        }
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+      >
+        <span
+          className={
+            "truncate " + (selectedOption ? "text-gray-800" : "text-gray-500")
+          }
+        >
+          {selectedOption?.label || placeholder}
+        </span>
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="shrink-0"
+          aria-hidden="true"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+
+      {isOpen && !disabled && (
+        <div
+          role="listbox"
+          className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-xl"
+        >
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="option"
+              aria-selected={value === option.value}
+              onClick={() => {
+                if (option.disabled) return;
+                onChange(option.value);
+                setIsOpen(false);
+              }}
+              disabled={option.disabled}
+              className={
+                "block w-full px-3 py-2 text-left text-sm " +
+                (option.disabled
+                  ? "cursor-not-allowed bg-gray-50 text-gray-400"
+                  : value === option.value
+                    ? "bg-red-50 font-medium text-red-700"
+                    : "text-gray-700 hover:bg-red-50")
+              }
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const DonationModal = ({
   isOpen,
   onClose,
   backendUrl,
   userToken,
   onTransactionComplete,
+  specialCategoryCode,
+  onSwitchDonationFlow,
 }) => {
   // --- STATE MANAGEMENT ---
   const [userProfile, setUserProfile] = useState(null);
@@ -61,7 +198,8 @@ const DonationModal = ({
 
   const initialFormData = {
     willCome: "YES",
-    courierAddress: "",
+    prasadType: "HALWA",
+    deliveryAddress: { ...emptyDeliveryAddress },
     donationItems: [
       {
         categoryId: "",
@@ -79,15 +217,27 @@ const DonationModal = ({
         error: "", // For real-time validation
       },
     ],
-    paymentMethod: "Online",
     remarks: "",
   };
   const [formData, setFormData] = useState(initialFormData);
+  // A special category is always a self donation, but it does not include
+  // Mahaprasad fulfilment.
+  const isSpecialDonation = Boolean(specialCategoryCode);
+  const effectiveDonationMode = isSpecialDonation ? "self" : donationMode;
   const [totals, setTotals] = useState({
     totalAmount: 0,
     courierCharge: 0,
     netPayable: 0,
   });
+  const donationTotal = formData.donationItems.reduce(
+    (sum, item) => sum + (parseFloat(item.rate) || 0),
+    0
+  );
+  const hasPacketEligibleCategory = formData.donationItems.some(
+    (item) =>
+      item.isPacketBased || item.category.toLowerCase().includes("professional")
+  );
+  const isCourierEligible = donationTotal >= 1210;
 
   // --- HELPER FUNCTIONS ---
   const loadRazorpayScript = () =>
@@ -127,37 +277,48 @@ const DonationModal = ({
     } else if (!isOpen) {
       resetForm();
     }
-  }, [isOpen, userToken]);
-
-  useEffect(() => {
-    if (userProfile) {
-      setFormData((prev) => ({ ...prev, courierAddress: getPrefillAddress() }));
-    }
-  }, [userProfile]);
+  }, [isOpen, userToken, specialCategoryCode]);
 
   useEffect(() => {
     calculateTotals();
   }, [
+    effectiveDonationMode,
     formData.donationItems,
     formData.willCome,
-    formData.courierAddress,
+    formData.deliveryAddress,
     courierCharges,
   ]);
 
   useEffect(() => {
     if (formData.willCome === "NO") {
-      const location = formData.courierAddress.toLowerCase();
-      const isInvalid =
-        (location.includes("manpur") &&
-          location.includes("gaya") &&
-          location.includes("bihar")) ||
-        (location.includes("gaya") && location.includes("bihar")) ||
-        !location;
-      setIsCourierAddressInvalid(isInvalid);
+      setIsCourierAddressInvalid(
+        getMissingDeliveryAddressFields(formData.deliveryAddress).length > 0
+      );
     } else {
       setIsCourierAddressInvalid(false);
     }
-  }, [formData.courierAddress, formData.willCome]);
+  }, [formData.deliveryAddress, formData.willCome]);
+
+  useEffect(() => {
+    if (effectiveDonationMode === "child" || isSpecialDonation) return;
+
+    if (formData.willCome === "NO" && !isCourierEligible) {
+      setFormData((prev) => ({
+        ...prev,
+        willCome: "YES",
+        deliveryAddress: { ...emptyDeliveryAddress },
+      }));
+    } else if (!hasPacketEligibleCategory && formData.prasadType !== "HALWA") {
+      setFormData((prev) => ({ ...prev, prasadType: "HALWA" }));
+    }
+  }, [
+    effectiveDonationMode,
+    formData.prasadType,
+    formData.willCome,
+    hasPacketEligibleCategory,
+    isCourierEligible,
+    isSpecialDonation,
+  ]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -211,7 +372,11 @@ const DonationModal = ({
         setCategories(data.categories);
 
         const dynamicCategories = data.categories.filter(
-          (cat) => cat.dynamic?.isDynamic
+          (cat) =>
+            cat.dynamic?.isDynamic &&
+            (cat.availableFor?.length > 0
+              ? cat.availableFor.includes("child")
+              : true)
         );
         if (dynamicCategories.length > 0) {
           const weights = dynamicCategories
@@ -220,6 +385,24 @@ const DonationModal = ({
           if (weights.length > 0) {
             const minWeight = Math.min(...weights);
             setMinTotalWeight(minWeight);
+          }
+        }
+
+        if (specialCategoryCode) {
+          const specialCategory = data.categories.find(
+            (category) => category.categoryCode === specialCategoryCode
+          );
+          if (specialCategory) {
+            setDonationMode("self");
+            setFormData((prev) => ({
+              ...prev,
+              willCome: "YES",
+              prasadType: "HALWA",
+              deliveryAddress: { ...emptyDeliveryAddress },
+              donationItems: [
+                createDonationItemForCategory(specialCategory),
+              ],
+            }));
           }
         }
       }
@@ -393,12 +576,68 @@ const DonationModal = ({
   };
 
   // --- FORM LOGIC ---
+  const createDonationItemForCategory = (category) => {
+    const item = {
+      ...initialFormData.donationItems[0],
+      categoryId: category._id,
+      category: category.categoryName,
+      unitAmount: category.rate || 0,
+      unitWeight: category.weight || 0,
+      unitPacket: category.packet ? 1 : 0,
+      isDynamic: category.dynamic?.isDynamic || false,
+      minvalue: category.dynamic?.minvalue || 0,
+      isPacket: category.packet || false,
+      isPacketBased: category.packet || false,
+      error: "",
+    };
+    const isService = item.category.toLowerCase().includes("service");
+
+    if (isService || item.isDynamic) {
+      item.quantity = 1;
+      item.rate = "";
+    } else {
+      item.quantity = "";
+      item.rate = 0;
+      item.weight = 0;
+      item.packet = 0;
+    }
+
+    return item;
+  };
+
+  const getCategoriesForMode = (mode = effectiveDonationMode) => {
+    if (specialCategoryCode) {
+      return categories.filter(
+        (category) => category.categoryCode === specialCategoryCode
+      );
+    }
+
+    const regularCategories = categories.filter(
+      (category) => category.showInRegularDonation !== false
+    );
+    return regularCategories.filter((category) => {
+      if (category.availableFor?.length > 0) {
+        return category.availableFor.includes(mode);
+      }
+      return mode === "self" || category.dynamic?.isDynamic;
+    });
+  };
+
   const handleDonationModeChange = (mode) => {
     if (submitting) return;
+    const modeCategories = getCategoriesForMode(mode);
+    const donationItem =
+      modeCategories.length === 1
+        ? createDonationItemForCategory(modeCategories[0])
+        : { ...initialFormData.donationItems[0] };
+
     setDonationMode(mode);
     setFormData((prev) => ({
       ...prev,
-      donationItems: [{ ...initialFormData.donationItems[0] }],
+      willCome: "YES",
+      prasadType: "HALWA",
+      deliveryAddress: { ...emptyDeliveryAddress },
+      donationItems: [donationItem],
     }));
     if (mode === "self") {
       setSelectedChildId("");
@@ -408,99 +647,193 @@ const DonationModal = ({
     }
   };
 
-  const getPrefillAddress = () => {
-    if (!userProfile?.address) return "";
-    const {
-      room,
-      floor,
-      apartment,
-      street,
-      landmark,
-      postoffice,
-      city,
-      district,
-      state,
-      country,
-      pin,
-    } = userProfile.address;
-    return [
-      room,
-      floor,
-      apartment,
-      street,
-      landmark,
-      postoffice,
-      city,
-      district,
-      state,
-      country,
-      pin,
+  const formatDeliveryAddress = (address) =>
+    [
+      address.room,
+      address.floor,
+      address.apartment,
+      address.street,
+      address.landmark,
+      address.postoffice,
+      address.city,
+      address.district,
+      address.state,
+      address.country,
+      address.pin,
     ]
       .filter(Boolean)
       .join(", ");
+
+  const getMissingDeliveryAddressFields = (address) => {
+    const requiredFields = [
+      "currlocation",
+      "country",
+      "city",
+      "pin",
+      "street",
+    ];
+    const isOutsideIndia = address.currlocation === "outside_india";
+    if (!isOutsideIndia) requiredFields.push("state");
+
+    return requiredFields.filter((field) => !address[field]?.trim());
+  };
+
+  const getDeliveryPinError = (address) => {
+    if (
+      address.currlocation !== "outside_india" &&
+      address.pin &&
+      !/^\d{6}$/.test(address.pin)
+    ) {
+      return "PIN Code must be exactly 6 digits.";
+    }
+    return "";
+  };
+
+  const isCourierUnavailable = (location) =>
+    courierUnavailableLocations.has(location);
+
+  const handleDeliveryAddressChange = (field, value) => {
+    const formattedValue =
+      field === "pin" ? value : capitalizeEachWord(value);
+    setFormData((prev) => ({
+      ...prev,
+      deliveryAddress: {
+        ...prev.deliveryAddress,
+        [field]: formattedValue,
+      },
+    }));
+  };
+
+  const handleDeliveryLocationChange = (location) => {
+    const locationDefaults = {
+      in_manpur: {
+        country: "India",
+        state: "Bihar",
+        district: "Gaya",
+        city: "Gaya",
+        postoffice: "Buniyadganj",
+        pin: "823003",
+        street: "Manpur",
+      },
+      in_gaya_outside_manpur: {
+        country: "India",
+        state: "Bihar",
+        district: "Gaya",
+        city: "Gaya",
+        postoffice: "",
+        pin: "",
+        street: "",
+      },
+      in_bihar_outside_gaya: {
+        country: "India",
+        state: "Bihar",
+        district: "",
+        city: "",
+        postoffice: "",
+        pin: "",
+        street: "",
+      },
+      in_india_outside_bihar: {
+        country: "India",
+        state: "",
+        district: "",
+        city: "",
+        postoffice: "",
+        pin: "",
+        street: "",
+      },
+      outside_india: {
+        country: "",
+        state: "",
+        district: "",
+        city: "",
+        postoffice: "",
+        pin: "",
+        street: "",
+      },
+    };
+
+    setFormData((prev) => ({
+      ...prev,
+      deliveryAddress: {
+        ...emptyDeliveryAddress,
+        currlocation: location,
+        ...(locationDefaults[location] || {}),
+      },
+    }));
   };
 
   const getCourierChargeForUser = () => {
     if (
+      effectiveDonationMode === "child" ||
+      isSpecialDonation ||
       formData.willCome === "YES" ||
-      !formData.courierAddress ||
+      !formData.deliveryAddress.currlocation ||
+      isCourierUnavailable(formData.deliveryAddress.currlocation) ||
       courierCharges.length === 0
     )
       return 0;
-    const location = formData.courierAddress.toLowerCase();
-    const hasManpur = location.includes("manpur");
-    const hasGaya = location.includes("gaya");
-    const hasBihar = location.includes("bihar");
-    const hasIndia = location.includes("india");
+    const regionByLocation = {
+      in_gaya_outside_manpur: "in_gaya_outside_manpur",
+      in_bihar_outside_gaya: "in_bihar_outside_gaya",
+      in_india_outside_bihar: "in_india_outside_bihar",
+      outside_india: "outside_india",
+    };
+    const region = regionByLocation[formData.deliveryAddress.currlocation];
 
-    if (hasManpur && hasGaya && hasBihar && hasIndia) {
-      return 0;
-    } else if (hasGaya && hasBihar && hasIndia && !hasManpur) {
-      return (
-        courierCharges.find((c) => c.region === "in_gaya_outside_manpur")
-          ?.amount || 0
-      );
-    } else if (hasBihar && hasIndia && !hasGaya && !hasManpur) {
-      return (
-        courierCharges.find((c) => c.region === "in_bihar_outside_gaya")
-          ?.amount || 0
-      );
-    } else if (hasIndia && !hasBihar && !hasGaya && !hasManpur) {
-      return (
-        courierCharges.find((c) => c.region === "in_india_outside_bihar")
-          ?.amount || 0
-      );
-    } else {
-      return (
-        courierCharges.find((c) => c.region === "outside_india")?.amount || 0
-      );
-    }
+    if (!region) return 0;
+    return courierCharges.find((charge) => charge.region === region)?.amount || 0;
   };
 
   const calculateTotals = () => {
-    const totalAmount = formData.donationItems.reduce(
-      (sum, item) => sum + (parseFloat(item.rate) || 0),
-      0
-    );
+    const totalAmount = donationTotal;
     const courierCharge = getCourierChargeForUser();
     const netPayable = totalAmount + courierCharge;
     setTotals({ totalAmount, courierCharge, netPayable });
   };
 
+  const isProfessionalCategory = (category) =>
+    category.categoryName.toLowerCase().includes("professional");
+
   const getAvailableCategories = (currentIndex) => {
     const selectedCategoryIds = formData.donationItems
       .map((item, index) => (index !== currentIndex ? item.categoryId : null))
       .filter(Boolean);
-    const available = categories.filter(
+    const available = getCategoriesForMode().filter(
       (cat) => !selectedCategoryIds.includes(cat._id)
     );
-    return donationMode === "child"
-      ? available.filter((cat) => cat.dynamic?.isDynamic)
-      : available;
+
+    return available.sort((first, second) => {
+      const firstIsProfessional = isProfessionalCategory(first);
+      const secondIsProfessional = isProfessionalCategory(second);
+
+      if (firstIsProfessional !== secondIsProfessional) {
+        return firstIsProfessional ? -1 : 1;
+      }
+
+      return first.categoryName.localeCompare(second.categoryName, "en", {
+        sensitivity: "base",
+      });
+    });
   };
 
   const handleInputChange = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleDonationFlowSwitch = (nextFlow) => {
+    const hasEnteredAmount = formData.donationItems.some(
+      (item) => Number(item.rate) > 0
+    );
+    if (
+      hasEnteredAmount &&
+      !window.confirm(
+        "Switching donation types will clear the details entered here. Continue?"
+      )
+    ) {
+      return;
+    }
+    onSwitchDonationFlow?.(nextFlow);
   };
 
   const handleDonationItemChange = (index, field, value) => {
@@ -510,47 +843,30 @@ const DonationModal = ({
     if (field === "categoryId") {
       const selectedCategory = categories.find((cat) => cat._id === value);
       if (!selectedCategory) return;
-
-      item = {
-        // Reset item to avoid carrying over old properties
-        ...initialFormData.donationItems[0],
-        categoryId: value,
-        category: selectedCategory.categoryName,
-        unitAmount: selectedCategory.rate || 0,
-        unitWeight: selectedCategory.weight || 0,
-        unitPacket: selectedCategory.packet ? 1 : 0,
-        isDynamic: selectedCategory.dynamic?.isDynamic || false,
-        minvalue: selectedCategory.dynamic?.minvalue || 0,
-        isPacket: selectedCategory.packet || false,
-        isPacketBased: selectedCategory.packet || false,
-        error: "",
-      };
-
-      const isService = item.category.toLowerCase().includes("service");
-
-      if (isService || item.isDynamic) {
-        item.quantity = 1;
-        item.rate = ""; // Set rate to empty
-      } else {
-        item.quantity = ""; // Standard items start with empty quantity
-        item.rate = 0;
-        item.weight = 0;
-        item.packet = 0;
-      }
+      item = createDonationItemForCategory(selectedCategory);
     } else if (field === "quantity") {
       const numericValue = value === "" ? "" : parseInt(value) || 1;
 
-      if (!item.isDynamic) {
+      if (!item.isDynamic || isSpecialDonation) {
         item.quantity = numericValue;
         const calcQty = parseInt(numericValue) || 0;
         const isService = item.category.toLowerCase().includes("service");
 
-        if (!isService) {
+        if (isSpecialDonation) {
+          const minimumAmount = item.minvalue * calcQty;
+          const rateValue = parseFloat(item.rate) || 0;
+          item.error =
+            rateValue > 0 && rateValue < minimumAmount
+              ? `Amount must be at least ₹${minimumAmount}.`
+              : "";
+        } else if (!isService) {
           item.rate = item.unitAmount * calcQty;
         }
 
-        item.weight = item.unitWeight * calcQty;
-        item.packet = item.unitPacket * calcQty;
+        if (!isSpecialDonation) {
+          item.weight = item.unitWeight * calcQty;
+          item.packet = item.unitPacket * calcQty;
+        }
 
         // Real-time validation for service category if rate is already filled
         if (isService) {
@@ -573,7 +889,9 @@ const DonationModal = ({
         if (isService) {
           minAmount = item.unitAmount * (parseInt(item.quantity) || 1);
         } else if (item.isDynamic) {
-          minAmount = item.minvalue;
+          minAmount =
+            item.minvalue *
+            (isSpecialDonation ? parseInt(item.quantity) || 1 : 1);
         }
 
         if (newAmount > 0 && newAmount < minAmount) {
@@ -705,7 +1023,7 @@ const DonationModal = ({
             const receiptData = {
               donation: verifyResult.donation,
               user: userProfile,
-              childUser: donationMode === "child" ? child : null,
+              childUser: effectiveDonationMode === "child" ? child : null,
               weightAdjustmentMessage,
             };
 
@@ -753,7 +1071,7 @@ const DonationModal = ({
     if (husbandNameError) {
       return alert(husbandNameError);
     }
-    if (donationMode === "child" && !selectedChildId)
+    if (effectiveDonationMode === "child" && !selectedChildId)
       return alert("Please select a child to donate for.");
     if (showChildForm)
       return alert(
@@ -761,8 +1079,43 @@ const DonationModal = ({
       );
     if (formData.donationItems.some((item) => !item.categoryId))
       return alert("Please select a category for all donation items.");
-    if (formData.willCome === "NO" && !formData.courierAddress.trim())
-      return alert("Please provide a valid courier address.");
+    if (
+      isSpecialDonation &&
+      formData.donationItems.some(
+        (item) =>
+          !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1
+      )
+    ) {
+      return alert("Please enter a valid Pratima quantity.");
+    }
+    if (
+      effectiveDonationMode === "self" &&
+      !isSpecialDonation &&
+      formData.willCome === "NO"
+    ) {
+      if (!isCourierEligible) {
+        return alert(
+          "Courier delivery is available when the combined donation amount is at least ₹1,210."
+        );
+      }
+      if (isCourierUnavailable(formData.deliveryAddress.currlocation)) {
+        return alert(
+          "Courier service is not available in Manpur or in Gaya outside Manpur. Please collect your Mahaprasad from Durga Sthan or choose another delivery region."
+        );
+      }
+      const missingAddressFields = getMissingDeliveryAddressFields(
+        formData.deliveryAddress
+      );
+      if (missingAddressFields.length > 0) {
+        return alert(
+          `Please complete the required delivery address fields: ${missingAddressFields.join(
+            ", "
+          )}.`
+        );
+      }
+      const deliveryPinError = getDeliveryPinError(formData.deliveryAddress);
+      if (deliveryPinError) return alert(deliveryPinError);
+    }
     if (totals.netPayable <= 0)
       return alert("Donation amount must be greater than zero.");
 
@@ -783,27 +1136,55 @@ const DonationModal = ({
 
     setSubmitting(true);
     try {
+      const mahaprasadFulfillment =
+        effectiveDonationMode === "child" || isSpecialDonation
+          ? { mode: "none", type: "none" }
+          : formData.willCome === "NO"
+            ? { mode: "courier", type: "packet" }
+            : {
+                mode: "collection",
+                type: hasPacketEligibleCategory
+                  ? formData.prasadType.toLowerCase()
+                  : "halwa",
+              };
       const donationData = {
         userId: userProfile._id,
         list: formData.donationItems.map((item) => ({
           category: item.category,
-          number: item.isDynamic ? 1 : parseInt(item.quantity) || 0,
+          number:
+            item.isDynamic && !isSpecialDonation
+              ? 1
+              : parseInt(item.quantity) || 0,
           amount: parseFloat(item.rate) || 0,
           isPacket: item.packet > 0,
           quantity: item.weight,
         })),
         amount: totals.netPayable,
         method: "Online",
-        courierCharge: totals.courierCharge,
+        courierCharge:
+          mahaprasadFulfillment.mode === "courier"
+            ? totals.courierCharge
+            : 0,
         remarks: formData.remarks || "",
         postalAddress:
-          formData.willCome === "NO"
-            ? formData.courierAddress
-            : "Will collect from Durga Sthan",
+          mahaprasadFulfillment.mode === "courier"
+            ? formatDeliveryAddress(formData.deliveryAddress)
+            : mahaprasadFulfillment.mode === "collection"
+              ? "Will collect from Durga Sthan"
+              : isSpecialDonation
+                ? "No Mahaprasad - Maa Durga Pratima donation"
+                : "No Mahaprasad - Voluntary child donation",
+        deliveryAddress:
+          mahaprasadFulfillment.mode === "courier"
+            ? formData.deliveryAddress
+            : undefined,
+        mahaprasadFulfillment,
         totalPrasadWeight: finalTotalWeight,
-        donatedAs: donationMode,
+        donatedAs: effectiveDonationMode,
         donatedFor:
-          donationMode === "child" ? selectedChildId : userProfile._id,
+          effectiveDonationMode === "child"
+            ? selectedChildId
+            : userProfile._id,
         relationName: isDonatingAsWife ? husbandName.trim() : "",
       };
 
@@ -830,6 +1211,7 @@ const DonationModal = ({
 
   if (!isOpen) return null;
   const selectedChild = childUsers.find((c) => c._id === selectedChildId);
+  const modeCategoryCount = getCategoriesForMode().length;
 
   return (
     <>
@@ -852,16 +1234,23 @@ const DonationModal = ({
               <div className="flex items-center gap-3">
                 <Heart className="animate-pulse" size={32} />
                 <div>
-                  <h2 className="text-2xl font-bold">Make a Donation</h2>
+                  <h2 className="text-2xl font-bold">
+                    {specialCategoryCode
+                      ? "Donate for Maa Durga Pratima"
+                      : "Make a Donation"}
+                  </h2>
                   <p className="text-red-100 mt-1">
-                    Your contribution makes a difference
+                    {specialCategoryCode
+                      ? "A special contribution starting at ₹2,500 per person"
+                      : "Your contribution makes a difference"}
                   </p>
                 </div>
               </div>
             </div>
 
             <div className="p-6 space-y-6">
-              <div className="bg-gray-100 p-1 rounded-full flex">
+              {!specialCategoryCode && (
+                <div className="bg-gray-100 p-1 rounded-full flex">
                 <button
                   onClick={() => handleDonationModeChange("self")}
                   className={`w-1/2 py-2 rounded-full font-semibold transition-colors flex items-center justify-center gap-2 ${
@@ -882,6 +1271,50 @@ const DonationModal = ({
                 >
                   <Baby size={16} /> Donate for Child
                 </button>
+                </div>
+              )}
+
+              {specialCategoryCode && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                  Your entire contribution in this form will be dedicated to
+                  Maa Durga Pratima. The minimum is ₹2,500 per person, and you
+                  may contribute a higher amount.
+                </div>
+              )}
+
+              <div
+                className={`flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between ${
+                  specialCategoryCode
+                    ? "border-red-200 bg-red-50"
+                    : "border-amber-200 bg-amber-50"
+                }`}
+              >
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">
+                    {specialCategoryCode
+                      ? "Remember your usual yearly donation"
+                      : "Optional Maa Durga Pratima contribution"}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-gray-600">
+                    {specialCategoryCode
+                      ? "This special contribution is separate from your yearly self donation."
+                      : "The Pratima contribution is handled separately from your usual yearly donation."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleDonationFlowSwitch(
+                      specialCategoryCode ? "regular" : "maa_durga_pratima"
+                    )
+                  }
+                  disabled={submitting}
+                  className="shrink-0 rounded-full border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {specialCategoryCode
+                    ? "Make Yearly Self Donation"
+                    : "View Pratima Contribution"}
+                </button>
               </div>
 
               {/* Donor Information */}
@@ -891,7 +1324,7 @@ const DonationModal = ({
                     <MapPin size={16} className="text-red-500" /> Donor
                     Information
                   </label>
-                  {donationMode === "self" &&
+                  {effectiveDonationMode === "self" &&
                     userProfile?.gender === "female" && (
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-medium text-gray-600">
@@ -924,7 +1357,7 @@ const DonationModal = ({
                     )}
                 </div>
 
-                {donationMode === "self" ? (
+                {effectiveDonationMode === "self" ? (
                   <>
                     <div className="w-full p-3 border border-gray-300 rounded-lg bg-gray-50">
                       {userProfile ? (
@@ -987,19 +1420,18 @@ const DonationModal = ({
                 ) : (
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
-                      <select
+                      <AnchoredSelect
                         value={selectedChildId}
-                        onChange={(e) => handleChildSelect(e.target.value)}
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
+                        onChange={handleChildSelect}
+                        options={childUsers.map((child) => ({
+                          value: child._id,
+                          label: child.fullname,
+                        }))}
+                        placeholder="Select a Child"
+                        className="min-w-0 flex-1"
+                        buttonClassName="rounded-lg border border-gray-300 p-3 focus:ring-2 focus:ring-red-500"
                         disabled={submitting || showChildForm}
-                      >
-                        <option value="">-- Select a Child --</option>
-                        {childUsers.map((child) => (
-                          <option key={child._id} value={child._id}>
-                            {child.fullname}
-                          </option>
-                        ))}
-                      </select>
+                      />
                       <button
                         onClick={handleAddNewChildClick}
                         className="p-3 bg-red-500 text-white rounded-lg hover:bg-red-600 shrink-0"
@@ -1077,18 +1509,20 @@ const DonationModal = ({
                         </div>
                         <div className="flex flex-col mb-4 lg:flex-row lg:items-center">
                           <label className="w-full text-gray-700 lg:w-1/5">Gender</label>
-                          <select
-                            className="w-full p-2 border border-gray-300 rounded"
+                          <AnchoredSelect
                             value={childFormData.gender}
-                            onChange={(e) =>
-                              handleChildFormChange("gender", e.target.value)
+                            onChange={(value) =>
+                              handleChildFormChange("gender", value)
                             }
+                            options={[
+                              { value: "male", label: "Male" },
+                              { value: "female", label: "Female" },
+                            ]}
+                            placeholder="Select Gender"
+                            className="w-full"
+                            buttonClassName="rounded border border-gray-300 p-2"
                             disabled={savingChild}
-                          >
-                            <option value="">Select Gender</option>
-                            <option value="male">Male</option>
-                            <option value="female">Female</option>
-                          </select>
+                          />
                         </div>
                         <div className="flex flex-col mb-4 lg:flex-row lg:items-center">
                           <label className="w-full text-gray-700 lg:w-1/5">Date of Birth</label>
@@ -1143,77 +1577,6 @@ const DonationModal = ({
                 )}
               </div>
 
-              {/* Will Come & Address Section */}
-              <div className="space-y-3">
-                <label className="text-sm font-semibold text-gray-700">
-                  Will you come to Durga Sthan to get your Mahaprasad?
-                </label>
-                <div className="flex gap-6">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="willCome"
-                      value="YES"
-                      checked={formData.willCome === "YES"}
-                      onChange={(e) =>
-                        handleInputChange("willCome", e.target.value)
-                      }
-                      className="text-red-500 focus:ring-red-500"
-                      disabled={submitting}
-                    />
-                    <span className="text-sm font-medium text-gray-700">
-                      YES
-                    </span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="willCome"
-                      value="NO"
-                      checked={formData.willCome === "NO"}
-                      onChange={(e) =>
-                        handleInputChange("willCome", e.target.value)
-                      }
-                      className="text-red-500 focus:ring-red-500"
-                      disabled={submitting}
-                    />
-                    <span className="text-sm font-medium text-gray-700">
-                      NO, Send via courier
-                    </span>
-                  </label>
-                </div>
-              </div>
-
-              {formData.willCome === "NO" && (
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold text-gray-700">
-                    Courier/Postal Address
-                  </label>
-                  <textarea
-                    value={formData.courierAddress}
-                    onChange={(e) =>
-                      handleInputChange("courierAddress", e.target.value)
-                    }
-                    placeholder="Please write your complete courier/postal address..."
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 resize-none"
-                    rows="3"
-                    required
-                    disabled={submitting}
-                  />
-                  <p className="text-xs text-blue-600 bg-blue-50 p-2 rounded-md">
-                    Please confirm your address. The courier charge will be
-                    calculated based on this address.
-                  </p>
-                  {isCourierAddressInvalid && (
-                    <p className="text-sm font-medium text-orange-800 bg-orange-100 p-3 rounded-md mt-2">
-                      The address you mentioned is not eligible for courier
-                      service. You will need to collect the Mahaprasad from
-                      Shree Durga Sthan.
-                    </p>
-                  )}
-                </div>
-              )}
-
               {/* Donation Items */}
               <div className="space-y-4">
                 <div className="flex items-center gap-2 mb-4">
@@ -1236,7 +1599,12 @@ const DonationModal = ({
                       .includes("service");
                     let placeholder = "Amount";
                     if (item.isDynamic) {
-                      placeholder = `Minimum ₹${item.minvalue || 0}`;
+                      const minimumAmount =
+                        (item.minvalue || 0) *
+                        (isSpecialDonation
+                          ? parseInt(item.quantity) || 1
+                          : 1);
+                      placeholder = `Minimum ₹${minimumAmount}`;
                     } else if (isService) {
                       const minAmount =
                         item.unitAmount * (parseInt(item.quantity) || 1);
@@ -1268,36 +1636,47 @@ const DonationModal = ({
                             <label className="block text-xs font-medium text-gray-600 mb-1">
                               Category
                             </label>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setOpenDropdownIndex(
-                                  openDropdownIndex === index ? null : index
-                                );
-                                setCategorySearch("");
-                                setActiveCategoryIndex(0);
-                              }}
-                              className="w-full p-2 text-sm border border-gray-300 rounded text-left bg-white flex justify-between items-center"
-                              disabled={submitting}
-                            >
-                              <span className="truncate">
-                                {item.category || "Select Category..."}
-                              </span>
-                              <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                width="16"
-                                height="16"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
+                            {modeCategoryCount === 1 ? (
+                              <div
+                                className="w-full rounded border border-gray-300 bg-gray-100 p-2 text-sm text-gray-700"
+                                aria-readonly="true"
                               >
-                                <path d="m6 9 6 6 6-6" />
-                              </svg>
-                            </button>
-                            {openDropdownIndex === index && (
+                                {item.category ||
+                                  getCategoriesForMode()[0]?.categoryName}
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOpenDropdownIndex(
+                                    openDropdownIndex === index ? null : index
+                                  );
+                                  setCategorySearch("");
+                                  setActiveCategoryIndex(0);
+                                }}
+                                className="w-full p-2 text-sm border border-gray-300 rounded text-left bg-white flex justify-between items-center"
+                                disabled={submitting}
+                              >
+                                <span className="truncate">
+                                  {item.category || "Select Category..."}
+                                </span>
+                                <svg
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  width="16"
+                                  height="16"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <path d="m6 9 6 6 6-6" />
+                                </svg>
+                              </button>
+                            )}
+                            {modeCategoryCount > 1 &&
+                              openDropdownIndex === index && (
                               <div className="absolute z-20 w-full bg-white border rounded-lg shadow-lg mt-1">
                                 <div className="p-2 border-b">
                                   <input
@@ -1337,13 +1716,22 @@ const DonationModal = ({
                                             : ""
                                         }`}
                                       >
-                                        {category.categoryName}
+                                        <span className="flex items-center justify-between gap-2">
+                                          <span>{category.categoryName}</span>
+                                          {isProfessionalCategory(
+                                            category
+                                          ) && (
+                                            <span className="shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
+                                              Popular
+                                            </span>
+                                          )}
+                                        </span>
                                       </li>
                                     )
                                   )}
                                 </ul>
                               </div>
-                            )}
+                              )}
                           </div>
 
                           <div>
@@ -1352,7 +1740,11 @@ const DonationModal = ({
                             </label>
                             <input
                               type="text"
-                              value={item.isDynamic ? "" : item.quantity}
+                              value={
+                                item.isDynamic && !isSpecialDonation
+                                  ? ""
+                                  : item.quantity
+                              }
                               onChange={(e) => {
                                 const value = e.target.value;
                                 if (
@@ -1369,7 +1761,7 @@ const DonationModal = ({
                               }}
                               onBlur={(e) => {
                                 if (
-                                  !item.isDynamic &&
+                                  (!item.isDynamic || isSpecialDonation) &&
                                   (e.target.value === "" ||
                                     parseInt(e.target.value) === 0)
                                 ) {
@@ -1382,10 +1774,15 @@ const DonationModal = ({
                               }}
                               className="w-full p-2 text-sm border border-gray-300 rounded"
                               placeholder={
-                                item.isDynamic ? "Not Applicable" : "Enter Qty"
+                                item.isDynamic && !isSpecialDonation
+                                  ? "Not Applicable"
+                                  : "Enter Qty"
                               }
                               required
-                              disabled={item.isDynamic || submitting}
+                              disabled={
+                                (item.isDynamic && !isSpecialDonation) ||
+                                submitting
+                              }
                             />
                           </div>
                           <div>
@@ -1428,60 +1825,291 @@ const DonationModal = ({
                       </div>
                     );
                   })}
-                  <button
-                    type="button"
-                    onClick={addDonationItem}
-                    className="w-full p-3 border-2 border-dashed border-red-300 text-red-600 rounded-lg hover:bg-red-50 flex items-center justify-center gap-2"
-                    disabled={submitting}
-                  >
-                    <Plus size={20} /> Add More Items
-                  </button>
+                  {modeCategoryCount > 1 &&
+                    formData.donationItems.length < modeCategoryCount && (
+                    <button
+                      type="button"
+                      onClick={addDonationItem}
+                      className="w-full p-3 border-2 border-dashed border-red-300 text-red-600 rounded-lg hover:bg-red-50 flex items-center justify-center gap-2"
+                      disabled={submitting}
+                    >
+                      <Plus size={20} /> Add More Items
+                    </button>
+                    )}
                 </div>
               </div>
 
-              {/* Summaries */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <h4 className="font-semibold text-gray-800 mb-2">
-                    Mahaprasad Details
-                  </h4>
-                  <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
-                    <li>Your donation is a great help to our community.</li>
-                    <li>
-                      As a token of gratitude,
-                      {formData.willCome === "YES" ||
-                      (formData.willCome === "NO" &&
-                        isCourierAddressInvalid) ? (
-                        <span> you can collect Mahaprasad in-person.</span>
-                      ) : (
-                        <span> we will send you a packet of Mahaprasad.</span>
-                      )}
-                    </li>
-                  </ul>
+              {/* Mahaprasad fulfilment depends on the selected donation items. */}
+              {effectiveDonationMode === "child" && (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                  <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
+                    <p className="text-sm font-semibold text-amber-900">
+                      No Mahaprasad is provided for this donation.
+                    </p>
+                    <p className="mt-1 text-xs text-amber-800">
+                      A donation made for a child is treated as a voluntary
+                      contribution only, so in-person collection and courier
+                      delivery do not apply.
+                    </p>
+                  </div>
                 </div>
-                <div className="bg-red-50 p-4 rounded-lg border border-red-200">
-                  <h4 className="font-semibold text-gray-800 mb-3">
-                    Donation Summary
-                  </h4>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Total Donation:</span>
-                      <span className="font-medium">
-                        ₹{totals.totalAmount.toFixed(2)}
+              )}
+
+              {effectiveDonationMode === "self" && !isSpecialDonation && (
+                <div className="space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-800">
+                      Mahaprasad Fulfilment
+                    </h3>
+                    <p className="mt-1 text-xs text-gray-600">
+                      Choose how you would like to receive Mahaprasad for this
+                      donation.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="willCome"
+                        value="YES"
+                        checked={formData.willCome === "YES"}
+                        onChange={(event) =>
+                          handleInputChange("willCome", event.target.value)
+                        }
+                        className="mt-1 text-red-500 focus:ring-red-500"
+                        disabled={submitting}
+                      />
+                      <span className="text-sm font-medium text-gray-700">
+                        I will collect it from Durga Sthan
                       </span>
-                    </div>
+                    </label>
+                    <label
+                      className={
+                        "flex items-start gap-2 " +
+                        (isCourierEligible
+                          ? "cursor-pointer"
+                          : "cursor-not-allowed opacity-60")
+                      }
+                    >
+                      <input
+                        type="radio"
+                        name="willCome"
+                        value="NO"
+                        checked={formData.willCome === "NO"}
+                        onChange={(event) =>
+                          handleInputChange("willCome", event.target.value)
+                        }
+                        className="mt-1 text-red-500 focus:ring-red-500"
+                        disabled={submitting || !isCourierEligible}
+                      />
+                      <span className="text-sm font-medium text-gray-700">
+                        Please send it by courier
+                        {!isCourierEligible && (
+                          <span className="block text-xs font-normal text-gray-600">
+                            Available when the combined donation is at least
+                            ₹1,210.
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  </div>
+
+                  {formData.willCome === "YES" &&
+                    (hasPacketEligibleCategory ? (
+                      <div className="rounded-md border border-red-100 bg-white p-3">
+                        <p className="mb-2 text-sm font-semibold text-gray-700">
+                          What would you like to collect?
+                        </p>
+                        <div className="flex flex-wrap gap-5">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="prasadType"
+                              value="HALWA"
+                              checked={formData.prasadType === "HALWA"}
+                              onChange={(event) =>
+                                handleInputChange(
+                                  "prasadType",
+                                  event.target.value
+                                )
+                              }
+                              disabled={submitting}
+                            />
+                            <span className="text-sm">Mahaprasad (Halwa)</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="prasadType"
+                              value="PACKET"
+                              checked={formData.prasadType === "PACKET"}
+                              onChange={(event) =>
+                                handleInputChange(
+                                  "prasadType",
+                                  event.target.value
+                                )
+                              }
+                              disabled={submitting}
+                            />
+                            <span className="text-sm">Packet</span>
+                          </label>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="rounded-md bg-blue-50 p-3 text-sm text-blue-800">
+                        Mahaprasad (Halwa) will be available for collection.
+                      </p>
+                    ))}
+
+                  {formData.willCome === "NO" && (
+                    <>
+                      <p className="rounded-md bg-blue-50 p-3 text-sm text-blue-800">
+                        Courier fulfilment is always provided as a packet.
+                      </p>
+                      <div className="space-y-4 rounded-lg border border-gray-200 bg-white p-4">
+                        <h4 className="text-sm font-semibold text-gray-700">
+                          Mahaprasad Delivery Address
+                        </h4>
+                        <div>
+                          <label className="mb-1 block text-sm font-semibold text-gray-700">
+                            Delivery Region{" "}
+                            <span className="text-red-500">*</span>
+                          </label>
+                          <AnchoredSelect
+                            value={formData.deliveryAddress.currlocation}
+                            onChange={handleDeliveryLocationChange}
+                            options={deliveryLocationOptions.map((option) => ({
+                              value: option.value,
+                              label:
+                                option.label +
+                                (option.courierAvailable === false
+                                  ? " — Courier unavailable"
+                                  : ""),
+                              disabled: option.courierAvailable === false,
+                            }))}
+                            placeholder="Select Delivery Region"
+                            className="w-full"
+                            buttonClassName="rounded-lg border border-gray-300 p-2 focus:ring-2 focus:ring-red-500"
+                            disabled={submitting}
+                          />
+                        </div>
+
+                        <p className="rounded-md bg-orange-100 p-3 text-sm text-orange-800">
+                          Courier service is not available in Manpur or in Gaya
+                          outside Manpur. Please collect your Mahaprasad from
+                          Durga Sthan if your address is in either region.
+                        </p>
+
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                          {deliveryAddressFields.map(
+                            ({ name, label, required }) => {
+                              const isOutsideIndia =
+                                formData.deliveryAddress.currlocation ===
+                                "outside_india";
+                              const isRequired =
+                                required &&
+                                !(name === "state" && isOutsideIndia);
+                              const fieldLabel =
+                                name === "pin" && isOutsideIndia
+                                  ? "Zip Code"
+                                  : label;
+
+                              return (
+                                <div key={name}>
+                                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                                    {fieldLabel}
+                                    {isRequired && (
+                                      <span className="text-red-500"> *</span>
+                                    )}
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={formData.deliveryAddress[name]}
+                                    onChange={(event) => {
+                                      const value =
+                                        name === "pin" && !isOutsideIndia
+                                          ? event.target.value.replace(
+                                              /\D/g,
+                                              ""
+                                            )
+                                          : event.target.value;
+                                      handleDeliveryAddressChange(name, value);
+                                    }}
+                                    placeholder={
+                                      name === "pin" && !isOutsideIndia
+                                        ? "6-digit PIN Code"
+                                        : "Enter " + fieldLabel.toLowerCase()
+                                    }
+                                    maxLength={
+                                      name === "pin"
+                                        ? isOutsideIndia
+                                          ? 20
+                                          : 6
+                                        : undefined
+                                    }
+                                    className="w-full rounded-lg border border-gray-300 bg-white p-2 text-sm focus:ring-2 focus:ring-red-500"
+                                    required={isRequired}
+                                    disabled={submitting}
+                                  />
+                                  {name === "pin" &&
+                                    getDeliveryPinError(
+                                      formData.deliveryAddress
+                                    ) && (
+                                      <p className="mt-1 text-xs text-red-500">
+                                        {getDeliveryPinError(
+                                          formData.deliveryAddress
+                                        )}
+                                      </p>
+                                    )}
+                                </div>
+                              );
+                            }
+                          )}
+                        </div>
+
+                        <p className="rounded-md bg-blue-50 p-2 text-xs text-blue-600">
+                          Please confirm each part of your delivery address.
+                          Courier charges are calculated from the selected
+                          delivery region.
+                        </p>
+                        {isCourierAddressInvalid && (
+                          <p className="mt-2 rounded-md bg-orange-100 p-3 text-sm font-medium text-orange-800">
+                            Please complete all required delivery address
+                            fields.
+                          </p>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Donation Summary */}
+              <div className="bg-red-50 p-4 rounded-lg border border-red-200">
+                <h4 className="font-semibold text-gray-800 mb-3">
+                  Donation Summary
+                </h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Total Donation:</span>
+                    <span className="font-medium">
+                      ₹{totals.totalAmount.toFixed(2)}
+                    </span>
+                  </div>
+                  {effectiveDonationMode === "self" && !isSpecialDonation && (
                     <div className="flex justify-between">
                       <span className="text-gray-600">Courier Charge:</span>
                       <span className="font-medium">
                         ₹{totals.courierCharge.toFixed(2)}
                       </span>
                     </div>
-                    <div className="flex justify-between border-t border-red-200 pt-2 font-semibold">
-                      <span className="text-gray-800">Net Payable:</span>
-                      <span className="text-red-600 text-lg">
-                        ₹{totals.netPayable.toFixed(2)}
-                      </span>
-                    </div>
+                  )}
+                  <div className="flex justify-between border-t border-red-200 pt-2 font-semibold">
+                    <span className="text-gray-800">Net Payable:</span>
+                    <span className="text-red-600 text-lg">
+                      ₹{totals.netPayable.toFixed(2)}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1492,17 +2120,9 @@ const DonationModal = ({
                   <CreditCard size={16} className="text-red-500" /> Payment
                   Method
                 </label>
-                <select
-                  value={formData.paymentMethod}
-                  onChange={(e) =>
-                    handleInputChange("paymentMethod", e.target.value)
-                  }
-                  className="w-full p-3 border border-gray-300 rounded-lg"
-                  required
-                  disabled={submitting}
-                >
-                  <option value="Online">Online Payment</option>
-                </select>
+                <div className="w-full rounded-lg border border-gray-300 bg-gray-50 p-3 text-gray-700">
+                  Online Payment
+                </div>
               </div>
 
               {/* Action Buttons */}
