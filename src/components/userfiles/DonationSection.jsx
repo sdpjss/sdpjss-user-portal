@@ -220,7 +220,8 @@ const DonationSection = () => {
 
   const isPratimaDonation = (donation) =>
     donation?.donationType === "maa_durga_pratima" ||
-    donation?.list?.some((item) => item.category === "Maa Durga Pratima");
+    (donation?.list?.length === 1 &&
+      donation.list[0]?.category === "Maa Durga Pratima");
 
   const prasadCollectionModeAsLocalPickup = (donation) => {
     const address = donation.postalAddress.toLowerCase();

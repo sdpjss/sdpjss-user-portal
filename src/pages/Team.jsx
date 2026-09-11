@@ -3,7 +3,7 @@ import { AppContext } from "../context/AppContext";
 
 const Team = () => {
   const { backendUrl } = useContext(AppContext);
-  const [teamMembers, setTeamMembers] = useState({});
+  const [currentTeam, setCurrentTeam] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -35,7 +35,7 @@ const Team = () => {
       const data = await response.json();
 
       if (data.success) {
-        setTeamMembers(data.teamMembers);
+        setCurrentTeam(data.currentTeam || data.teamMembers || {});
       } else {
         throw new Error(data.message || "Failed to fetch team members");
       }
@@ -126,7 +126,7 @@ const Team = () => {
   }
 
   // Sort categories by their defined order
-  const sortedCategories = Object.keys(teamMembers).sort((a, b) => {
+  const sortedCategories = Object.keys(currentTeam).sort((a, b) => {
     const orderA = categoryConfig[a]?.order || 999;
     const orderB = categoryConfig[b]?.order || 999;
     return orderA - orderB;
@@ -142,11 +142,11 @@ const Team = () => {
 
       {sortedCategories.length === 0 ? (
         <div className="flex justify-center items-center py-20">
-          <p className="text-gray-600 text-lg">No team members found</p>
+          <p className="text-gray-600 text-lg">No current team members found</p>
         </div>
       ) : (
         sortedCategories.map((category) =>
-          renderTeamSection(category, teamMembers[category])
+          renderTeamSection(category, currentTeam[category])
         )
       )}
     </div>

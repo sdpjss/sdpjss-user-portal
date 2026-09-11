@@ -157,13 +157,13 @@ const DonationModal = ({
   backendUrl,
   userToken,
   onTransactionComplete,
-  specialCategoryCode,
-  onSwitchDonationFlow,
 }) => {
   // --- STATE MANAGEMENT ---
   const [userProfile, setUserProfile] = useState(null);
   const [categories, setCategories] = useState([]);
   const [courierCharges, setCourierCharges] = useState([]);
+  const [minimumCourierDonationAmount, setMinimumCourierDonationAmount] =
+    useState(1210);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [childNameError, setChildNameError] = useState("");
@@ -197,12 +197,13 @@ const DonationModal = ({
   const { loadUserDonations } = useContext(AppContext);
 
   const initialFormData = {
-    willCome: "YES",
-    prasadType: "HALWA",
+    willCome: "",
+    prasadType: "",
     deliveryAddress: { ...emptyDeliveryAddress },
     donationItems: [
       {
         categoryId: "",
+        categoryCode: "",
         category: "",
         quantity: 1,
         rate: 0,
@@ -214,16 +215,18 @@ const DonationModal = ({
         isPacketBased: false,
         isDynamic: false,
         minvalue: 0,
+        minimumAmountPerUnit: false,
+        prasadType: "grams",
+        packetsPerUnit: 0,
+        allowGramAlternativeForInPerson: false,
+        configurationVersion: "legacy-v1",
         error: "", // For real-time validation
       },
     ],
     remarks: "",
   };
   const [formData, setFormData] = useState(initialFormData);
-  // A special category is always a self donation, but it does not include
-  // Mahaprasad fulfilment.
-  const isSpecialDonation = Boolean(specialCategoryCode);
-  const effectiveDonationMode = isSpecialDonation ? "self" : donationMode;
+  const effectiveDonationMode = donationMode;
   const [totals, setTotals] = useState({
     totalAmount: 0,
     courierCharge: 0,
@@ -233,11 +236,42 @@ const DonationModal = ({
     (sum, item) => sum + (parseFloat(item.rate) || 0),
     0
   );
+  const mahaprasadEligibleTotal = formData.donationItems.reduce(
+    (sum, item) =>
+      item.categoryCode === "maa_durga_pratima" || item.prasadType === "none"
+        ? sum
+        : sum + (parseFloat(item.rate) || 0),
+    0
+  );
   const hasPacketEligibleCategory = formData.donationItems.some(
     (item) =>
-      item.isPacketBased || item.category.toLowerCase().includes("professional")
+      item.prasadType === "packet" ||
+      item.isPacketBased ||
+      item.category.toLowerCase().includes("professional")
   );
-  const isCourierEligible = donationTotal >= 1210;
+  const selectedConfiguredItems = formData.donationItems.filter(
+    (item) =>
+      item.categoryId &&
+      (item.categoryCode !== "maa_durga_pratima" || Number(item.rate) > 0)
+  );
+  const usesOnlyCategoryV2 =
+    selectedConfiguredItems.length > 0 &&
+    selectedConfiguredItems.every(
+      (item) => item.configurationVersion === "category-v2"
+    );
+  const hasV2GramOption =
+    usesOnlyCategoryV2 &&
+    selectedConfiguredItems.some(
+      (item) =>
+        item.prasadType === "grams" ||
+        (item.prasadType === "packet" &&
+          item.allowGramAlternativeForInPerson)
+    );
+  const hasV2PacketOption =
+    usesOnlyCategoryV2 &&
+    selectedConfiguredItems.some((item) => item.prasadType === "packet");
+  const isCourierEligible =
+    mahaprasadEligibleTotal >= minimumCourierDonationAmount;
 
   // --- HELPER FUNCTIONS ---
   const loadRazorpayScript = () =>
@@ -268,6 +302,7 @@ const DonationModal = ({
           Promise.all([
             fetchCategories(),
             fetchCourierCharges(),
+            fetchPrasadRate(),
             fetchChildUsers(profile._id),
           ]).finally(() => setLoading(false));
         } else {
@@ -277,7 +312,7 @@ const DonationModal = ({
     } else if (!isOpen) {
       resetForm();
     }
-  }, [isOpen, userToken, specialCategoryCode]);
+  }, [isOpen, userToken]);
 
   useEffect(() => {
     calculateTotals();
@@ -300,24 +335,20 @@ const DonationModal = ({
   }, [formData.deliveryAddress, formData.willCome]);
 
   useEffect(() => {
-    if (effectiveDonationMode === "child" || isSpecialDonation) return;
+    if (effectiveDonationMode === "child") return;
 
     if (formData.willCome === "NO" && !isCourierEligible) {
       setFormData((prev) => ({
         ...prev,
-        willCome: "YES",
+        willCome: "",
+        prasadType: "",
         deliveryAddress: { ...emptyDeliveryAddress },
       }));
-    } else if (!hasPacketEligibleCategory && formData.prasadType !== "HALWA") {
-      setFormData((prev) => ({ ...prev, prasadType: "HALWA" }));
     }
   }, [
     effectiveDonationMode,
-    formData.prasadType,
     formData.willCome,
-    hasPacketEligibleCategory,
     isCourierEligible,
-    isSpecialDonation,
   ]);
 
   useEffect(() => {
@@ -388,22 +419,25 @@ const DonationModal = ({
           }
         }
 
-        if (specialCategoryCode) {
-          const specialCategory = data.categories.find(
-            (category) => category.categoryCode === specialCategoryCode
-          );
-          if (specialCategory) {
-            setDonationMode("self");
-            setFormData((prev) => ({
-              ...prev,
-              willCome: "YES",
-              prasadType: "HALWA",
-              deliveryAddress: { ...emptyDeliveryAddress },
-              donationItems: [
-                createDonationItemForCategory(specialCategory),
-              ],
-            }));
-          }
+        const pratimaCategory = data.categories.find(
+          (category) => category.categoryCode === "maa_durga_pratima"
+        );
+        if (pratimaCategory) {
+          setFormData((prev) => ({
+            ...prev,
+            donationItems: prev.donationItems.some(
+              (item) => item.categoryCode === "maa_durga_pratima"
+            )
+              ? prev.donationItems.map((item) =>
+                  item.categoryCode === "maa_durga_pratima"
+                    ? createDonationItemForCategory(pratimaCategory)
+                    : item
+                )
+              : [
+                  ...prev.donationItems,
+                  createDonationItemForCategory(pratimaCategory),
+                ],
+          }));
         }
       }
     } catch (error) {
@@ -422,6 +456,23 @@ const DonationModal = ({
       }
     } catch (error) {
       console.error("Error fetching courier charges:", error);
+    }
+  };
+
+  const fetchPrasadRate = async () => {
+    try {
+      const response = await fetch(`${backendUrl}/api/user/prasad-rate`, {
+        headers: { utoken: userToken },
+      });
+      if (!response.ok) return;
+      const data = await response.json();
+      if (data.success && data.rate) {
+        setMinimumCourierDonationAmount(
+          Number(data.rate.minimumCourierDonationAmount) || 0
+        );
+      }
+    } catch (error) {
+      console.error("Error fetching Prasad configuration:", error);
     }
   };
 
@@ -580,12 +631,38 @@ const DonationModal = ({
     const item = {
       ...initialFormData.donationItems[0],
       categoryId: category._id,
+      categoryCode: category.categoryCode || "",
       category: category.categoryName,
       unitAmount: category.rate || 0,
       unitWeight: category.weight || 0,
       unitPacket: category.packet ? 1 : 0,
-      isDynamic: category.dynamic?.isDynamic || false,
-      minvalue: category.dynamic?.minvalue || 0,
+      isDynamic:
+        category.configurationVersion === "category-v2"
+          ? category.amountType === "minimum"
+          : category.dynamic?.isDynamic || false,
+      minvalue:
+        category.configurationVersion === "category-v2"
+          ? category.rate || 0
+          : category.dynamic?.minvalue || 0,
+      minimumAmountPerUnit:
+        category.configurationVersion === "category-v2" &&
+        category.amountType === "minimum" &&
+        Boolean(category.minimumAmountPerUnit),
+      prasadType:
+        category.configurationVersion === "category-v2"
+          ? category.prasadType
+          : category.categoryCode === "maa_durga_pratima"
+            ? "none"
+            : category.packet
+              ? "packet"
+              : "grams",
+      packetsPerUnit: category.packetsPerUnit || 0,
+      allowGramAlternativeForInPerson:
+        category.configurationVersion === "category-v2" &&
+        category.prasadType === "packet" &&
+        (category.allowGramAlternativeForInPerson ||
+          category.categoryName.toLowerCase().includes("professional")),
+      configurationVersion: category.configurationVersion || "legacy-v1",
       isPacket: category.packet || false,
       isPacketBased: category.packet || false,
       error: "",
@@ -606,12 +683,6 @@ const DonationModal = ({
   };
 
   const getCategoriesForMode = (mode = effectiveDonationMode) => {
-    if (specialCategoryCode) {
-      return categories.filter(
-        (category) => category.categoryCode === specialCategoryCode
-      );
-    }
-
     const regularCategories = categories.filter(
       (category) => category.showInRegularDonation !== false
     );
@@ -630,14 +701,21 @@ const DonationModal = ({
       modeCategories.length === 1
         ? createDonationItemForCategory(modeCategories[0])
         : { ...initialFormData.donationItems[0] };
+    const pratimaCategory = categories.find(
+      (category) => category.categoryCode === "maa_durga_pratima"
+    );
+    const donationItems =
+      mode === "self" && pratimaCategory
+        ? [donationItem, createDonationItemForCategory(pratimaCategory)]
+        : [donationItem];
 
     setDonationMode(mode);
     setFormData((prev) => ({
       ...prev,
-      willCome: "YES",
-      prasadType: "HALWA",
+      willCome: "",
+      prasadType: "",
       deliveryAddress: { ...emptyDeliveryAddress },
-      donationItems: [donationItem],
+      donationItems,
     }));
     if (mode === "self") {
       setSelectedChildId("");
@@ -766,7 +844,6 @@ const DonationModal = ({
   const getCourierChargeForUser = () => {
     if (
       effectiveDonationMode === "child" ||
-      isSpecialDonation ||
       formData.willCome === "YES" ||
       !formData.deliveryAddress.currlocation ||
       isCourierUnavailable(formData.deliveryAddress.currlocation) ||
@@ -818,22 +895,11 @@ const DonationModal = ({
   };
 
   const handleInputChange = (field, value) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const handleDonationFlowSwitch = (nextFlow) => {
-    const hasEnteredAmount = formData.donationItems.some(
-      (item) => Number(item.rate) > 0
-    );
-    if (
-      hasEnteredAmount &&
-      !window.confirm(
-        "Switching donation types will clear the details entered here. Continue?"
-      )
-    ) {
-      return;
-    }
-    onSwitchDonationFlow?.(nextFlow);
+    setFormData((prev) => ({
+      ...prev,
+      [field]: value,
+      ...(field === "willCome" ? { prasadType: "" } : {}),
+    }));
   };
 
   const handleDonationItemChange = (index, field, value) => {
@@ -847,26 +913,26 @@ const DonationModal = ({
     } else if (field === "quantity") {
       const numericValue = value === "" ? "" : parseInt(value) || 1;
 
-      if (!item.isDynamic || isSpecialDonation) {
+      if (item.minimumAmountPerUnit) {
+        item.quantity = numericValue;
+        const minAmount =
+          item.unitAmount * (parseInt(numericValue, 10) || 1);
+        const rateValue = parseFloat(item.rate) || 0;
+        item.error =
+          rateValue > 0 && rateValue < minAmount
+            ? `Amount must be at least ₹${minAmount}.`
+            : "";
+      } else if (!item.isDynamic) {
         item.quantity = numericValue;
         const calcQty = parseInt(numericValue) || 0;
         const isService = item.category.toLowerCase().includes("service");
 
-        if (isSpecialDonation) {
-          const minimumAmount = item.minvalue * calcQty;
-          const rateValue = parseFloat(item.rate) || 0;
-          item.error =
-            rateValue > 0 && rateValue < minimumAmount
-              ? `Amount must be at least ₹${minimumAmount}.`
-              : "";
-        } else if (!isService) {
+        if (!isService) {
           item.rate = item.unitAmount * calcQty;
         }
 
-        if (!isSpecialDonation) {
-          item.weight = item.unitWeight * calcQty;
-          item.packet = item.unitPacket * calcQty;
-        }
+        item.weight = item.unitWeight * calcQty;
+        item.packet = item.unitPacket * calcQty;
 
         // Real-time validation for service category if rate is already filled
         if (isService) {
@@ -891,7 +957,9 @@ const DonationModal = ({
         } else if (item.isDynamic) {
           minAmount =
             item.minvalue *
-            (isSpecialDonation ? parseInt(item.quantity) || 1 : 1);
+            (item.minimumAmountPerUnit
+              ? parseInt(item.quantity, 10) || 1
+              : 1);
         }
 
         if (newAmount > 0 && newAmount < minAmount) {
@@ -903,16 +971,29 @@ const DonationModal = ({
     }
 
     updatedItems[index] = item;
-    setFormData((prev) => ({ ...prev, donationItems: updatedItems }));
+    setFormData((prev) => ({
+      ...prev,
+      donationItems: updatedItems,
+      ...(field === "categoryId" ? { prasadType: "" } : {}),
+    }));
   };
 
   const addDonationItem = () => {
     setFormData((prev) => ({
       ...prev,
-      donationItems: [
-        ...prev.donationItems,
-        { ...initialFormData.donationItems[0] },
-      ],
+      donationItems: prev.donationItems.some(
+        (item) => item.categoryCode === "maa_durga_pratima"
+      )
+        ? [
+            ...prev.donationItems.slice(0, -1),
+            { ...initialFormData.donationItems[0] },
+            prev.donationItems[prev.donationItems.length - 1],
+          ]
+        : [
+            ...prev.donationItems,
+            { ...initialFormData.donationItems[0] },
+          ],
+      prasadType: "",
     }));
   };
 
@@ -921,6 +1002,7 @@ const DonationModal = ({
       setFormData((prev) => ({
         ...prev,
         donationItems: prev.donationItems.filter((_, i) => i !== index),
+        prasadType: "",
       }));
     }
   };
@@ -1064,6 +1146,14 @@ const DonationModal = ({
   };
 
   const handleSubmit = async () => {
+    const submittedDonationItems = formData.donationItems.filter(
+      (item) =>
+        item.categoryId &&
+        (item.categoryCode !== "maa_durga_pratima" || Number(item.rate) > 0)
+    );
+    const isPratimaOnlySubmission =
+      submittedDonationItems.length === 1 &&
+      submittedDonationItems[0].categoryCode === "maa_durga_pratima";
     if (isDonatingAsWife && !husbandName.trim()) {
       setHusbandNameError("Husband's name is required.");
       return alert("Please enter the husband's name.");
@@ -1077,25 +1167,26 @@ const DonationModal = ({
       return alert(
         "Please save or cancel the child details form before submitting the donation."
       );
-    if (formData.donationItems.some((item) => !item.categoryId))
-      return alert("Please select a category for all donation items.");
-    if (
-      isSpecialDonation &&
-      formData.donationItems.some(
-        (item) =>
-          !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1
-      )
-    ) {
-      return alert("Please enter a valid Pratima quantity.");
-    }
-    if (
+    if (submittedDonationItems.length === 0)
+      return alert(
+        "Please select a donation category or enter a Pratima contribution."
+      );
+    const requiresFulfillmentMode =
       effectiveDonationMode === "self" &&
-      !isSpecialDonation &&
-      formData.willCome === "NO"
+      !isPratimaOnlySubmission &&
+      mahaprasadEligibleTotal > 0;
+    if (
+      requiresFulfillmentMode &&
+      !["YES", "NO"].includes(formData.willCome)
     ) {
+      return alert(
+        "Please select in-person collection or courier for Mahaprasad fulfilment."
+      );
+    }
+    if (effectiveDonationMode === "self" && formData.willCome === "NO") {
       if (!isCourierEligible) {
         return alert(
-          "Courier delivery is available when the combined donation amount is at least ₹1,210."
+          `Courier delivery is available when the Prasad-eligible donation amount is at least ₹${minimumCourierDonationAmount.toLocaleString("en-IN")}. No-Prasad contributions are excluded.`
         );
       }
       if (isCourierUnavailable(formData.deliveryAddress.currlocation)) {
@@ -1119,6 +1210,26 @@ const DonationModal = ({
     if (totals.netPayable <= 0)
       return alert("Donation amount must be greater than zero.");
 
+    const availableInPersonPrasadTypes = usesOnlyCategoryV2
+      ? [
+          hasV2GramOption ? "HALWA" : null,
+          hasV2PacketOption ? "PACKET" : null,
+        ].filter(Boolean)
+      : hasPacketEligibleCategory
+        ? ["HALWA", "PACKET"]
+        : ["HALWA"];
+    const requiresPrasadSelection =
+      effectiveDonationMode === "self" &&
+      !isPratimaOnlySubmission &&
+      mahaprasadEligibleTotal > 0 &&
+      formData.willCome === "YES";
+    if (
+      requiresPrasadSelection &&
+      !availableInPersonPrasadTypes.includes(formData.prasadType)
+    ) {
+      return alert("Please select a Mahaprasad option for in-person collection.");
+    }
+
     // Check for real-time validation errors
     const errors = formData.donationItems
       .map((item, index) =>
@@ -1137,22 +1248,21 @@ const DonationModal = ({
     setSubmitting(true);
     try {
       const mahaprasadFulfillment =
-        effectiveDonationMode === "child" || isSpecialDonation
+        effectiveDonationMode === "child" ||
+        isPratimaOnlySubmission
           ? { mode: "none", type: "none" }
           : formData.willCome === "NO"
             ? { mode: "courier", type: "packet" }
             : {
                 mode: "collection",
-                type: hasPacketEligibleCategory
-                  ? formData.prasadType.toLowerCase()
-                  : "halwa",
+                type: formData.prasadType.toLowerCase(),
               };
       const donationData = {
         userId: userProfile._id,
-        list: formData.donationItems.map((item) => ({
+        list: submittedDonationItems.map((item) => ({
           category: item.category,
           number:
-            item.isDynamic && !isSpecialDonation
+            item.isDynamic && !item.minimumAmountPerUnit
               ? 1
               : parseInt(item.quantity) || 0,
           amount: parseFloat(item.rate) || 0,
@@ -1171,8 +1281,9 @@ const DonationModal = ({
             ? formatDeliveryAddress(formData.deliveryAddress)
             : mahaprasadFulfillment.mode === "collection"
               ? "Will collect from Durga Sthan"
-              : isSpecialDonation
-                ? "No Mahaprasad - Maa Durga Pratima donation"
+              : isPratimaOnlySubmission
+                ? formatDeliveryAddress(userProfile.address || {}) ||
+                  "Address not provided"
                 : "No Mahaprasad - Voluntary child donation",
         deliveryAddress:
           mahaprasadFulfillment.mode === "courier"
@@ -1212,7 +1323,13 @@ const DonationModal = ({
   if (!isOpen) return null;
   const selectedChild = childUsers.find((c) => c._id === selectedChildId);
   const modeCategoryCount = getCategoriesForMode().length;
-
+  const regularDonationItemCount = formData.donationItems.filter(
+    (item) => item.categoryCode !== "maa_durga_pratima"
+  ).length;
+  const pratimaItemIndex = formData.donationItems.findIndex(
+    (item) => item.categoryCode === "maa_durga_pratima"
+  );
+  const pratimaItem = formData.donationItems[pratimaItemIndex];
   return (
     <>
       <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
@@ -1235,22 +1352,17 @@ const DonationModal = ({
                 <Heart className="animate-pulse" size={32} />
                 <div>
                   <h2 className="text-2xl font-bold">
-                    {specialCategoryCode
-                      ? "Donate for Maa Durga Pratima"
-                      : "Make a Donation"}
+                    Make a Donation
                   </h2>
                   <p className="text-red-100 mt-1">
-                    {specialCategoryCode
-                      ? "A special contribution starting at ₹2,500 per person"
-                      : "Your contribution makes a difference"}
+                    Your contribution makes a difference
                   </p>
                 </div>
               </div>
             </div>
 
             <div className="p-6 space-y-6">
-              {!specialCategoryCode && (
-                <div className="bg-gray-100 p-1 rounded-full flex">
+              <div className="bg-gray-100 p-1 rounded-full flex">
                 <button
                   onClick={() => handleDonationModeChange("self")}
                   className={`w-1/2 py-2 rounded-full font-semibold transition-colors flex items-center justify-center gap-2 ${
@@ -1270,50 +1382,6 @@ const DonationModal = ({
                   }`}
                 >
                   <Baby size={16} /> Donate for Child
-                </button>
-                </div>
-              )}
-
-              {specialCategoryCode && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                  Your entire contribution in this form will be dedicated to
-                  Maa Durga Pratima. The minimum is ₹2,500 per person, and you
-                  may contribute a higher amount.
-                </div>
-              )}
-
-              <div
-                className={`flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between ${
-                  specialCategoryCode
-                    ? "border-red-200 bg-red-50"
-                    : "border-amber-200 bg-amber-50"
-                }`}
-              >
-                <div>
-                  <p className="text-sm font-semibold text-gray-800">
-                    {specialCategoryCode
-                      ? "Remember your usual yearly donation"
-                      : "Optional Maa Durga Pratima contribution"}
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-gray-600">
-                    {specialCategoryCode
-                      ? "This special contribution is separate from your yearly self donation."
-                      : "The Pratima contribution is handled separately from your usual yearly donation."}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleDonationFlowSwitch(
-                      specialCategoryCode ? "regular" : "maa_durga_pratima"
-                    )
-                  }
-                  disabled={submitting}
-                  className="shrink-0 rounded-full border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {specialCategoryCode
-                    ? "Make Yearly Self Donation"
-                    : "View Pratima Contribution"}
                 </button>
               </div>
 
@@ -1587,6 +1655,9 @@ const DonationModal = ({
                 </div>
                 <div className="space-y-4">
                   {formData.donationItems.map((item, index) => {
+                    if (item.categoryCode === "maa_durga_pratima") {
+                      return null;
+                    }
                     const availableCategories = getAvailableCategories(index);
                     const filteredCategories = availableCategories.filter(
                       (category) =>
@@ -1601,8 +1672,8 @@ const DonationModal = ({
                     if (item.isDynamic) {
                       const minimumAmount =
                         (item.minvalue || 0) *
-                        (isSpecialDonation
-                          ? parseInt(item.quantity) || 1
+                        (item.minimumAmountPerUnit
+                          ? parseInt(item.quantity, 10) || 1
                           : 1);
                       placeholder = `Minimum ₹${minimumAmount}`;
                     } else if (isService) {
@@ -1741,7 +1812,7 @@ const DonationModal = ({
                             <input
                               type="text"
                               value={
-                                item.isDynamic && !isSpecialDonation
+                                item.isDynamic && !item.minimumAmountPerUnit
                                   ? ""
                                   : item.quantity
                               }
@@ -1761,7 +1832,8 @@ const DonationModal = ({
                               }}
                               onBlur={(e) => {
                                 if (
-                                  (!item.isDynamic || isSpecialDonation) &&
+                                  (!item.isDynamic ||
+                                    item.minimumAmountPerUnit) &&
                                   (e.target.value === "" ||
                                     parseInt(e.target.value) === 0)
                                 ) {
@@ -1774,13 +1846,14 @@ const DonationModal = ({
                               }}
                               className="w-full p-2 text-sm border border-gray-300 rounded"
                               placeholder={
-                                item.isDynamic && !isSpecialDonation
+                                item.isDynamic && !item.minimumAmountPerUnit
                                   ? "Not Applicable"
                                   : "Enter Qty"
                               }
                               required
                               disabled={
-                                (item.isDynamic && !isSpecialDonation) ||
+                                (item.isDynamic &&
+                                  !item.minimumAmountPerUnit) ||
                                 submitting
                               }
                             />
@@ -1825,16 +1898,57 @@ const DonationModal = ({
                       </div>
                     );
                   })}
+                  {effectiveDonationMode === "self" &&
+                    pratimaItem && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                          <div>
+                            <p className="font-semibold text-amber-900">
+                              Maa Durga Pratima contribution (Optional)
+                            </p>
+                          </div>
+                          <div className="w-full sm:w-56">
+                            <label className="mb-1 block text-xs font-medium text-amber-900">
+                              Contribution amount (₹)
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              value={pratimaItem.rate}
+                              onChange={(event) =>
+                                handleDonationItemChange(
+                                  pratimaItemIndex,
+                                  "rate",
+                                  event.target.value
+                                )
+                              }
+                              placeholder={`Optional · Minimum ₹${pratimaItem.minvalue || 0}`}
+                              className={`w-full rounded border bg-white p-2 text-sm ${
+                                pratimaItem.error
+                                  ? "border-red-500"
+                                  : "border-amber-300"
+                              }`}
+                              disabled={submitting}
+                            />
+                          </div>
+                        </div>
+                        {pratimaItem.error && (
+                          <p className="mt-2 text-xs text-red-600">
+                            {pratimaItem.error}
+                          </p>
+                        )}
+                      </div>
+                    )}
                   {modeCategoryCount > 1 &&
-                    formData.donationItems.length < modeCategoryCount && (
-                    <button
-                      type="button"
-                      onClick={addDonationItem}
-                      className="w-full p-3 border-2 border-dashed border-red-300 text-red-600 rounded-lg hover:bg-red-50 flex items-center justify-center gap-2"
-                      disabled={submitting}
-                    >
-                      <Plus size={20} /> Add More Items
-                    </button>
+                    regularDonationItemCount < modeCategoryCount && (
+                      <button
+                        type="button"
+                        onClick={addDonationItem}
+                        className="w-full p-3 border-2 border-dashed border-red-300 text-red-600 rounded-lg hover:bg-red-50 flex items-center justify-center gap-2"
+                        disabled={submitting}
+                      >
+                        <Plus size={20} /> Add More Items
+                      </button>
                     )}
                 </div>
               </div>
@@ -1846,16 +1960,12 @@ const DonationModal = ({
                     <p className="text-sm font-semibold text-amber-900">
                       No Mahaprasad is provided for this donation.
                     </p>
-                    <p className="mt-1 text-xs text-amber-800">
-                      A donation made for a child is treated as a voluntary
-                      contribution only, so in-person collection and courier
-                      delivery do not apply.
-                    </p>
                   </div>
                 </div>
               )}
 
-              {effectiveDonationMode === "self" && !isSpecialDonation && (
+              {effectiveDonationMode === "self" &&
+                mahaprasadEligibleTotal > 0 && (
                 <div className="space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
                   <div>
                     <h3 className="text-lg font-semibold text-gray-800">
@@ -1907,8 +2017,12 @@ const DonationModal = ({
                         Please send it by courier
                         {!isCourierEligible && (
                           <span className="block text-xs font-normal text-gray-600">
-                            Available when the combined donation is at least
-                            ₹1,210.
+                            Available when the Mahaprasad-eligible donation is
+                            at least ₹
+                            {minimumCourierDonationAmount.toLocaleString(
+                              "en-IN"
+                            )}
+                            . No-Prasad contributions are excluded.
                           </span>
                         )}
                       </span>
@@ -1916,7 +2030,53 @@ const DonationModal = ({
                   </div>
 
                   {formData.willCome === "YES" &&
-                    (hasPacketEligibleCategory ? (
+                    (usesOnlyCategoryV2 ? (
+                      <div className="rounded-md border border-red-100 bg-white p-3">
+                        <p className="mb-2 text-sm font-semibold text-gray-700">
+                          What would you like to collect?
+                        </p>
+                        <div className="flex flex-wrap gap-5">
+                          {hasV2GramOption && (
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="prasadType"
+                                value="HALWA"
+                                checked={formData.prasadType === "HALWA"}
+                                onChange={(event) =>
+                                  handleInputChange(
+                                    "prasadType",
+                                    event.target.value
+                                  )
+                                }
+                                disabled={submitting}
+                              />
+                              <span className="text-sm">
+                                Mahaprasad (Halwa)
+                              </span>
+                            </label>
+                          )}
+                          {hasV2PacketOption && (
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="prasadType"
+                                value="PACKET"
+                                checked={formData.prasadType === "PACKET"}
+                                onChange={(event) =>
+                                  handleInputChange(
+                                    "prasadType",
+                                    event.target.value
+                                  )
+                                }
+                                disabled={submitting}
+                              />
+                              <span className="text-sm">Packet</span>
+                            </label>
+                          )}
+                        </div>
+                      </div>
+                    ) : hasPacketEligibleCategory ? (
                       <div className="rounded-md border border-red-100 bg-white p-3">
                         <p className="mb-2 text-sm font-semibold text-gray-700">
                           What would you like to collect?
@@ -1957,15 +2117,33 @@ const DonationModal = ({
                         </div>
                       </div>
                     ) : (
-                      <p className="rounded-md bg-blue-50 p-3 text-sm text-blue-800">
-                        Mahaprasad (Halwa) will be available for collection.
-                      </p>
+                      <div className="rounded-md border border-red-100 bg-white p-3">
+                        <p className="mb-2 text-sm font-semibold text-gray-700">
+                          What would you like to collect?
+                        </p>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="prasadType"
+                            value="HALWA"
+                            checked={formData.prasadType === "HALWA"}
+                            onChange={(event) =>
+                              handleInputChange(
+                                "prasadType",
+                                event.target.value
+                              )
+                            }
+                            disabled={submitting}
+                          />
+                          <span className="text-sm">Mahaprasad (Halwa)</span>
+                        </label>
+                      </div>
                     ))}
 
                   {formData.willCome === "NO" && (
                     <>
                       <p className="rounded-md bg-blue-50 p-3 text-sm text-blue-800">
-                        Courier fulfilment is always provided as a packet.
+                        Courier Prasad is provided as one packet.
                       </p>
                       <div className="space-y-4 rounded-lg border border-gray-200 bg-white p-4">
                         <h4 className="text-sm font-semibold text-gray-700">
@@ -2085,6 +2263,20 @@ const DonationModal = ({
                 </div>
               )}
 
+              {effectiveDonationMode === "self" &&
+                donationTotal > 0 &&
+                mahaprasadEligibleTotal === 0 && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                    <p className="text-sm font-semibold text-amber-900">
+                      No Mahaprasad is provided for a Pratima-only donation.
+                    </p>
+                    <p className="mt-1 text-xs text-amber-800">
+                      Add a yearly donation category if you would also like to
+                      select Mahaprasad fulfilment.
+                    </p>
+                  </div>
+                )}
+
               {/* Donation Summary */}
               <div className="bg-red-50 p-4 rounded-lg border border-red-200">
                 <h4 className="font-semibold text-gray-800 mb-3">
@@ -2097,7 +2289,7 @@ const DonationModal = ({
                       ₹{totals.totalAmount.toFixed(2)}
                     </span>
                   </div>
-                  {effectiveDonationMode === "self" && !isSpecialDonation && (
+                  {effectiveDonationMode === "self" && (
                     <div className="flex justify-between">
                       <span className="text-gray-600">Courier Charge:</span>
                       <span className="font-medium">
