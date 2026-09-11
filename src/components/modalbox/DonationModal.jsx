@@ -405,9 +405,7 @@ const DonationModal = ({
         const dynamicCategories = data.categories.filter(
           (cat) =>
             cat.dynamic?.isDynamic &&
-            (cat.availableFor?.length > 0
-              ? cat.availableFor.includes("child")
-              : true)
+            cat.applicableToChildDonation === true
         );
         if (dynamicCategories.length > 0) {
           const weights = dynamicCategories
@@ -687,10 +685,13 @@ const DonationModal = ({
       (category) => category.showInRegularDonation !== false
     );
     return regularCategories.filter((category) => {
-      if (category.availableFor?.length > 0) {
-        return category.availableFor.includes(mode);
+      if (mode === "child") {
+        return category.applicableToChildDonation === true;
       }
-      return mode === "self" || category.dynamic?.isDynamic;
+      if (category.availableFor?.length > 0) {
+        return category.availableFor.includes("self");
+      }
+      return true;
     });
   };
 
@@ -1171,6 +1172,14 @@ const DonationModal = ({
       return alert(
         "Please select a donation category or enter a Pratima contribution."
       );
+    const invalidQuantityItem = submittedDonationItems.find(
+      (item) =>
+        item.minimumAmountPerUnit &&
+        (!Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1)
+    );
+    if (invalidQuantityItem) {
+      return alert(`Please enter a valid quantity for ${invalidQuantityItem.category}.`);
+    }
     const requiresFulfillmentMode =
       effectiveDonationMode === "self" &&
       !isPratimaOnlySubmission &&
@@ -1330,6 +1339,12 @@ const DonationModal = ({
     (item) => item.categoryCode === "maa_durga_pratima"
   );
   const pratimaItem = formData.donationItems[pratimaItemIndex];
+  const pratimaMinimumAmount = pratimaItem
+    ? Number(pratimaItem.minvalue || 0) *
+      (pratimaItem.minimumAmountPerUnit
+        ? Number.parseInt(pratimaItem.quantity, 10) || 1
+        : 1)
+    : 0;
   return (
     <>
       <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
@@ -1907,29 +1922,59 @@ const DonationModal = ({
                               Maa Durga Pratima contribution (Optional)
                             </p>
                           </div>
-                          <div className="w-full sm:w-56">
-                            <label className="mb-1 block text-xs font-medium text-amber-900">
-                              Contribution amount (₹)
-                            </label>
-                            <input
-                              type="number"
-                              min="0"
-                              value={pratimaItem.rate}
-                              onChange={(event) =>
-                                handleDonationItemChange(
-                                  pratimaItemIndex,
-                                  "rate",
-                                  event.target.value
-                                )
-                              }
-                              placeholder={`Optional · Minimum ₹${pratimaItem.minvalue || 0}`}
-                              className={`w-full rounded border bg-white p-2 text-sm ${
-                                pratimaItem.error
-                                  ? "border-red-500"
-                                  : "border-amber-300"
-                              }`}
-                              disabled={submitting}
-                            />
+                          <div
+                            className={`grid w-full gap-3 ${
+                              pratimaItem.minimumAmountPerUnit
+                                ? "sm:w-auto sm:grid-cols-[7rem_14rem]"
+                                : "sm:w-56"
+                            }`}
+                          >
+                            {pratimaItem.minimumAmountPerUnit && (
+                              <div>
+                                <label className="mb-1 block text-xs font-medium text-amber-900">
+                                  Quantity
+                                </label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  step="1"
+                                  value={pratimaItem.quantity}
+                                  onChange={(event) =>
+                                    handleDonationItemChange(
+                                      pratimaItemIndex,
+                                      "quantity",
+                                      event.target.value
+                                    )
+                                  }
+                                  className="w-full rounded border border-amber-300 bg-white p-2 text-sm"
+                                  disabled={submitting}
+                                />
+                              </div>
+                            )}
+                            <div>
+                              <label className="mb-1 block text-xs font-medium text-amber-900">
+                                Contribution amount (₹)
+                              </label>
+                              <input
+                                type="number"
+                                min="0"
+                                value={pratimaItem.rate}
+                                onChange={(event) =>
+                                  handleDonationItemChange(
+                                    pratimaItemIndex,
+                                    "rate",
+                                    event.target.value
+                                  )
+                                }
+                                placeholder={`Optional · Minimum ₹${pratimaMinimumAmount}`}
+                                className={`w-full rounded border bg-white p-2 text-sm ${
+                                  pratimaItem.error
+                                    ? "border-red-500"
+                                    : "border-amber-300"
+                                }`}
+                                disabled={submitting}
+                              />
+                            </div>
                           </div>
                         </div>
                         {pratimaItem.error && (
