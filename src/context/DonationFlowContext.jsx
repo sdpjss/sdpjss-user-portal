@@ -12,29 +12,24 @@ const DonationFlowProvider = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [isDonationOpen, setIsDonationOpen] = useState(false);
-  const [donationFlow, setDonationFlow] = useState("regular");
   const [transaction, setTransaction] = useState({
     isOpen: false,
     status: "",
     message: "",
     receiptData: null,
-    donationFlow: "regular",
   });
 
-  const requestDonation = (flow) => {
+  const requestDonation = () => {
     if (utoken) {
-      setDonationFlow(flow);
       setIsDonationOpen(true);
       return;
     }
 
-    sessionStorage.setItem(PENDING_DONATION_KEY, flow);
+    sessionStorage.setItem(PENDING_DONATION_KEY, "true");
     setState("Login");
     navigate("/login");
   };
-  const openDonation = () => requestDonation("regular");
-  const openMaaDurgaPratimaDonation = () =>
-    requestDonation("maa_durga_pratima");
+  const openDonation = () => requestDonation();
 
   useEffect(() => {
     if (
@@ -42,37 +37,25 @@ const DonationFlowProvider = ({ children }) => {
       location.pathname !== "/login" &&
       sessionStorage.getItem(PENDING_DONATION_KEY)
     ) {
-      const pendingFlow = sessionStorage.getItem(PENDING_DONATION_KEY);
       sessionStorage.removeItem(PENDING_DONATION_KEY);
-      setDonationFlow(pendingFlow);
       setIsDonationOpen(true);
     }
   }, [location.pathname, utoken]);
 
   return (
-    <DonationFlowContext.Provider
-      value={{ openDonation, openMaaDurgaPratimaDonation }}
-    >
+    <DonationFlowContext.Provider value={{ openDonation }}>
       {children}
       <DonationModal
-        key={donationFlow}
         isOpen={isDonationOpen}
         onClose={() => setIsDonationOpen(false)}
         backendUrl={backendUrl}
         userToken={utoken}
-        specialCategoryCode={
-          donationFlow === "maa_durga_pratima"
-            ? "maa_durga_pratima"
-            : undefined
-        }
-        onSwitchDonationFlow={setDonationFlow}
         onTransactionComplete={(result) =>
           setTransaction({
             isOpen: true,
             status: result.status,
             message: result.message,
             receiptData: result.receiptData,
-            donationFlow,
           })
         }
       />
@@ -84,29 +67,6 @@ const DonationFlowProvider = ({ children }) => {
         status={transaction.status}
         message={transaction.message}
         receiptData={transaction.receiptData}
-        followUpAction={
-          transaction.donationFlow === "maa_durga_pratima"
-            ? {
-                title: "Remember your yearly donation",
-                message:
-                  "Your Maa Durga Pratima contribution is separate from your usual yearly self donation.",
-                label: "Make Yearly Self Donation",
-              }
-            : {
-                title: "Optional Maa Durga Pratima contribution",
-                message:
-                  "You can also make a separate contribution towards Maa Durga Pratima.",
-                label: "Contribute to Maa Durga Pratima",
-              }
-        }
-        onFollowUp={() => {
-          const nextFlow =
-            transaction.donationFlow === "maa_durga_pratima"
-              ? "regular"
-              : "maa_durga_pratima";
-          setTransaction((current) => ({ ...current, isOpen: false }));
-          requestDonation(nextFlow);
-        }}
       />
     </DonationFlowContext.Provider>
   );

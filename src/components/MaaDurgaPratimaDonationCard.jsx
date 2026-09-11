@@ -2,7 +2,7 @@ import { Sparkles } from "lucide-react";
 import { useDonationFlow } from "../context/DonationFlowContext";
 
 const MaaDurgaPratimaDonationCard = () => {
-  const { openMaaDurgaPratimaDonation } = useDonationFlow();
+  const { openDonation } = useDonationFlow();
 
   return (
     <section className="py-8" aria-labelledby="maa-durga-pratima-heading">
@@ -20,13 +20,13 @@ const MaaDurgaPratimaDonationCard = () => {
               Maa Durga Pratima
             </h2>
             <p className="mt-2 text-sm leading-6 text-red-50 sm:text-base">
-              Make a dedicated contribution towards Maa Durga Pratima. The
-              minimum contribution is ₹2,500 per person.
+              Add a Maa Durga Pratima contribution on the donation form, either
+              on its own or together with your yearly donation.
             </p>
           </div>
           <button
             type="button"
-            onClick={openMaaDurgaPratimaDonation}
+            onClick={openDonation}
             className="w-full shrink-0 rounded-full bg-white px-6 py-3 font-semibold text-red-700 shadow-md transition hover:bg-amber-50 md:w-auto"
           >
             Donate for Maa Durga Pratima
