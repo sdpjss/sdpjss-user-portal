@@ -186,6 +186,9 @@ const DonationModal = ({
   });
   const [dobError, setDobError] = useState("");
   const [isCourierAddressInvalid, setIsCourierAddressInvalid] = useState(false);
+  const [isDeliveryAddressConfirmed, setIsDeliveryAddressConfirmed] =
+    useState(false);
+  const streetAddressRef = useRef(null);
 
   // --- States for new features
   const [minTotalWeight, setMinTotalWeight] = useState(0);
@@ -338,6 +341,7 @@ const DonationModal = ({
     if (effectiveDonationMode === "child") return;
 
     if (formData.willCome === "NO" && !isCourierEligible) {
+      setIsDeliveryAddressConfirmed(false);
       setFormData((prev) => ({
         ...prev,
         willCome: "",
@@ -781,6 +785,7 @@ const DonationModal = ({
         [field]: formattedValue,
       },
     }));
+    setIsDeliveryAddressConfirmed(false);
   };
 
   const handleDeliveryLocationChange = (location) => {
@@ -840,6 +845,7 @@ const DonationModal = ({
         ...(locationDefaults[location] || {}),
       },
     }));
+    setIsDeliveryAddressConfirmed(false);
   };
 
   const getCourierChargeForUser = () => {
@@ -896,6 +902,7 @@ const DonationModal = ({
   };
 
   const handleInputChange = (field, value) => {
+    if (field === "willCome") setIsDeliveryAddressConfirmed(false);
     setFormData((prev) => ({
       ...prev,
       [field]: value,
@@ -1022,6 +1029,7 @@ const DonationModal = ({
     setIsDonatingAsWife(false);
     setHusbandName("");
     setHusbandNameError("");
+    setIsDeliveryAddressConfirmed(false);
   };
 
   const handleCategoryKeyDown = (event, itemIndex) => {
@@ -1215,6 +1223,11 @@ const DonationModal = ({
       }
       const deliveryPinError = getDeliveryPinError(formData.deliveryAddress);
       if (deliveryPinError) return alert(deliveryPinError);
+      if (!isDeliveryAddressConfirmed) {
+        return alert(
+          "Please review and confirm that your delivery address is complete and correct."
+        );
+      }
     }
     if (totals.netPayable <= 0)
       return alert("Donation amount must be greater than zero.");
@@ -1286,14 +1299,17 @@ const DonationModal = ({
             : 0,
         remarks: formData.remarks || "",
         postalAddress:
-          mahaprasadFulfillment.mode === "courier"
-            ? formatDeliveryAddress(formData.deliveryAddress)
-            : mahaprasadFulfillment.mode === "collection"
-              ? "Will collect from Durga Sthan"
-              : isPratimaOnlySubmission
-                ? formatDeliveryAddress(userProfile.address || {}) ||
-                  "Address not provided"
-                : "No Mahaprasad - Voluntary child donation",
+          effectiveDonationMode === "child"
+            ? formatDeliveryAddress(userProfile.address || {}) ||
+              "Address not provided"
+            : mahaprasadFulfillment.mode === "courier"
+              ? formatDeliveryAddress(formData.deliveryAddress)
+              : mahaprasadFulfillment.mode === "collection"
+                ? "Will collect from Durga Sthan"
+                : isPratimaOnlySubmission
+                  ? formatDeliveryAddress(userProfile.address || {}) ||
+                    "Address not provided"
+                  : "Address not provided",
         deliveryAddress:
           mahaprasadFulfillment.mode === "courier"
             ? formData.deliveryAddress
@@ -1345,6 +1361,15 @@ const DonationModal = ({
         ? Number.parseInt(pratimaItem.quantity, 10) || 1
         : 1)
     : 0;
+  const canReviewDeliveryAddress =
+    formData.willCome === "NO" &&
+    Boolean(formData.deliveryAddress.currlocation) &&
+    !isCourierUnavailable(formData.deliveryAddress.currlocation) &&
+    getMissingDeliveryAddressFields(formData.deliveryAddress).length === 0 &&
+    !getDeliveryPinError(formData.deliveryAddress);
+  const deliveryAddressPreview = formatDeliveryAddress(
+    formData.deliveryAddress
+  );
   return (
     <>
       <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
@@ -2226,7 +2251,7 @@ const DonationModal = ({
 
                         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                           {deliveryAddressFields.map(
-                            ({ name, label, required }) => {
+                            ({ name, label, placeholder, required }) => {
                               const isOutsideIndia =
                                 formData.deliveryAddress.currlocation ===
                                 "outside_india";
@@ -2247,6 +2272,7 @@ const DonationModal = ({
                                     )}
                                   </label>
                                   <input
+                                    ref={name === "street" ? streetAddressRef : null}
                                     type="text"
                                     value={formData.deliveryAddress[name]}
                                     onChange={(event) => {
@@ -2262,7 +2288,8 @@ const DonationModal = ({
                                     placeholder={
                                       name === "pin" && !isOutsideIndia
                                         ? "6-digit PIN Code"
-                                        : "Enter " + fieldLabel.toLowerCase()
+                                        : placeholder ||
+                                          "Enter " + fieldLabel.toLowerCase()
                                     }
                                     maxLength={
                                       name === "pin"
@@ -2291,16 +2318,57 @@ const DonationModal = ({
                           )}
                         </div>
 
-                        <p className="rounded-md bg-blue-50 p-2 text-xs text-blue-600">
-                          Please confirm each part of your delivery address.
-                          Courier charges are calculated from the selected
-                          delivery region.
-                        </p>
                         {isCourierAddressInvalid && (
                           <p className="mt-2 rounded-md bg-orange-100 p-3 text-sm font-medium text-orange-800">
                             Please complete all required delivery address
                             fields.
                           </p>
+                        )}
+                        {canReviewDeliveryAddress && (
+                          <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                              <div>
+                                <h5 className="flex items-center gap-2 text-sm font-semibold text-green-900">
+                                  <MapPin className="h-4 w-4" />
+                                  Please review your delivery address
+                                </h5>
+                                <p className="mt-2 text-sm leading-6 text-gray-800">
+                                  {deliveryAddressPreview}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  streetAddressRef.current?.scrollIntoView({
+                                    behavior: "smooth",
+                                    block: "center",
+                                  });
+                                  streetAddressRef.current?.focus();
+                                }}
+                                className="shrink-0 text-sm font-semibold text-green-800 underline hover:text-green-950"
+                                disabled={submitting}
+                              >
+                                Edit address
+                              </button>
+                            </div>
+                            <label className="mt-3 flex cursor-pointer items-start gap-2 border-t border-green-200 pt-3 text-sm text-green-950">
+                              <input
+                                type="checkbox"
+                                checked={isDeliveryAddressConfirmed}
+                                onChange={(event) =>
+                                  setIsDeliveryAddressConfirmed(
+                                    event.target.checked
+                                  )
+                                }
+                                className="mt-1 h-4 w-4"
+                                disabled={submitting}
+                              />
+                              <span>
+                                I confirm that the delivery address above is
+                                complete and correct.
+                              </span>
+                            </label>
+                          </div>
                         )}
                       </div>
                     </>
