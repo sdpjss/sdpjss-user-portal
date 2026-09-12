@@ -1299,14 +1299,17 @@ const DonationModal = ({
             : 0,
         remarks: formData.remarks || "",
         postalAddress:
-          mahaprasadFulfillment.mode === "courier"
-            ? formatDeliveryAddress(formData.deliveryAddress)
-            : mahaprasadFulfillment.mode === "collection"
-              ? "Will collect from Durga Sthan"
-              : isPratimaOnlySubmission
-                ? formatDeliveryAddress(userProfile.address || {}) ||
-                  "Address not provided"
-                : "No Mahaprasad - Voluntary child donation",
+          effectiveDonationMode === "child"
+            ? formatDeliveryAddress(userProfile.address || {}) ||
+              "Address not provided"
+            : mahaprasadFulfillment.mode === "courier"
+              ? formatDeliveryAddress(formData.deliveryAddress)
+              : mahaprasadFulfillment.mode === "collection"
+                ? "Will collect from Durga Sthan"
+                : isPratimaOnlySubmission
+                  ? formatDeliveryAddress(userProfile.address || {}) ||
+                    "Address not provided"
+                  : "Address not provided",
         deliveryAddress:
           mahaprasadFulfillment.mode === "courier"
             ? formData.deliveryAddress

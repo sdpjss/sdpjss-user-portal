@@ -224,7 +224,7 @@ const DonationSection = () => {
       donation.list[0]?.category === "Maa Durga Pratima");
 
   const prasadCollectionModeAsLocalPickup = (donation) => {
-    const address = donation.postalAddress.toLowerCase();
+    const address = (donation.postalAddress || "").toLowerCase();
     if (address === "will collect from durga sthan") {
       return true;
     }
@@ -236,8 +236,28 @@ const DonationSection = () => {
     return false;
   };
 
+  const getDeliveryModeLabel = (donation) => {
+    if (
+      donation.donatedAs === "child" ||
+      donation.mahaprasadFulfillment?.mode === "none"
+    ) {
+      return "Not applicable";
+    }
+    if (donation.mahaprasadFulfillment?.mode === "courier") {
+      return "Courier";
+    }
+    if (donation.mahaprasadFulfillment?.mode === "collection") {
+      return "Local Pickup";
+    }
+    return prasadCollectionModeAsLocalPickup(donation)
+      ? "Local Pickup"
+      : "Courier";
+  };
+
   const shouldShowPrasadTokenButton = (donation) => {
-    return !isPratimaDonation(donation)
+    return donation.donatedAs !== "child"
+      && donation.mahaprasadFulfillment?.mode !== "none"
+      && !isPratimaDonation(donation)
       && prasadCollectionModeAsLocalPickup(donation)
       && import.meta.env.VITE_SHOW_PRASAD_TOKEN_DOWNLOAD_BUTTON === "true";
   };
@@ -543,9 +563,7 @@ const DonationSection = () => {
                         <div className="flex items-center text-sm text-gray-600 mt-1">
                           <Truck className="w-4 h-4 mr-1" /> Delivery Mode: {" "}
                           <span className="bg-blue-100 px-2 py-1 rounded ml-1">
-                            {prasadCollectionModeAsLocalPickup(donation)
-                              ? 'Local Pickup'
-                              : 'Courier'}
+                            {getDeliveryModeLabel(donation)}
                           </span>
                         </div>
                       </>

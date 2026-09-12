@@ -102,6 +102,8 @@ const DonationReceiptTemplate = ({ receiptData }) => {
     .filter(Boolean)
     .join(", ");
   const donorAddress =
+    donation.donatedAs === "child" ||
+    donation.postalAddress === "No Mahaprasad - Voluntary child donation" ||
     donation.postalAddress === "Will collect from Durga Sthan" ||
     !donation.postalAddress
       ? profileAddress
