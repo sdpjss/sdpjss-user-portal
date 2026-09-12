@@ -23,7 +23,14 @@ import PrasadTokenTemplate from "../PrasadTokenTemplate";
 // ==============================================================================
 
 const DonationSection = () => {
-  const { donations, donationsLoading, userData, childUsers, childUsersLoading } = useContext(AppContext);
+  const {
+    donations,
+    donationsLoading,
+    loadUserDonations,
+    userData,
+    childUsers,
+    childUsersLoading,
+  } = useContext(AppContext);
   const { openDonation } = useDonationFlow();
   const receiptRef = useRef(null); // <-- ADDED for PDF generation
   const [receiptData, setReceiptData] = useState(null); // <-- ADDED state to hold data for donation receipt PDF
@@ -193,11 +200,21 @@ const DonationSection = () => {
   };
 
   // <-- NEW: Handler to prepare data and trigger download -->
-  const handleDownloadClick = (donation) => {
+  const getLatestDonation = async (donation) => {
+    const latestDonations = await loadUserDonations();
+    if (!latestDonations) return null;
+    return (
+      latestDonations?.find((item) => item._id === donation._id) || donation
+    );
+  };
+
+  const handleDownloadClick = async (donation) => {
+    const latestDonation = await getLatestDonation(donation);
+    if (!latestDonation) return;
     const dataForReceipt = {
-      donation: donation,
+      donation: latestDonation,
       user: userData,
-      childUser: donation.donatedAs === "child" ? (childUsers.find(child => child._id === donation.donatedFor)) : null,
+      childUser: latestDonation.donatedAs === "child" ? (childUsers.find(child => child._id === latestDonation.donatedFor)) : null,
       weightAdjustmentMessage: 0, // Set default or get from donation if available
     };
   //
@@ -205,11 +222,13 @@ const DonationSection = () => {
   };
 
   // <-- NEW: Handler to prepare data and trigger prasad token download -->
-  const handlePrasadTokenDownloadClick = (donation) => {
+  const handlePrasadTokenDownloadClick = async (donation) => {
+    const latestDonation = await getLatestDonation(donation);
+    if (!latestDonation) return;
     const dataForToken = {
-      donation: donation,
+      donation: latestDonation,
       user: userData,
-      childUser: donation.donatedAs === "child" ? (childUsers.find(child => child._id === donation.donatedFor)) : null,
+      childUser: latestDonation.donatedAs === "child" ? (childUsers.find(child => child._id === latestDonation.donatedFor)) : null,
       weightAdjustmentMessage: 0, // Set default or get from donation if available
     };
     setTokenData(dataForToken);

@@ -161,14 +161,17 @@ const AppContextProvider = (props) => {
 
       if (data.success) {
         setDonations(data.donations);
+        return data.donations;
       } else {
         toast.error(data.message);
         setDonations([]);
+        return null;
       }
     } catch (error) {
       console.log("Error loading donations:", error);
       toast.error("Failed to load donations");
       setDonations([]);
+      return null;
     } finally {
       setDonationsLoading(false);
     }
