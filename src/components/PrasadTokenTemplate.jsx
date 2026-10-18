@@ -1,4 +1,6 @@
 
+import { getPrasadQuantities } from "../utils/prasadToken";
+
 const PrasadTokenTemplate = ({ receiptData }) => {
   if (!receiptData) return null;
 
@@ -9,14 +11,8 @@ const PrasadTokenTemplate = ({ receiptData }) => {
     : childUser
       ? `${childUser.gender === "female" ? "D/O" : "S/O"} ${user.fullname}`
       : `${user.gender === "female" ? "D/O" : "S/O"} ${user.fatherName}`;
-  const totalPackets = donation.list.reduce((sum, item) => {
-    return sum + (item.isPacket ? item.quantity : 0);
-  }, 0);
-
-  // Define the function outside the component
-  const totalWeightInGrams = donation.list.reduce((sum, item) => {
-    return sum + (item.isPacket ? 0 : item.quantity);
-  }, 0);
+  const { grams: totalWeightInGrams, packets: totalPackets } =
+    getPrasadQuantities(donation);
 
   // convert gm to kg and gm
   const convertGramsToKgAndGm = (totalGrams) => {

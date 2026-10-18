@@ -17,6 +17,10 @@ import { AppContext } from "../../context/AppContext";
 import { useDonationFlow } from "../../context/DonationFlowContext";
 import DonationReceiptTemplate from "../DonationReceiptTemplate";
 import PrasadTokenTemplate from "../PrasadTokenTemplate";
+import {
+  canDownloadPrasadToken,
+  getPrasadQuantities,
+} from "../../utils/prasadToken";
 
 // ==============================================================================
 // DONATION SECTION COMPONENT
@@ -274,21 +278,11 @@ const DonationSection = () => {
   };
 
   const shouldShowPrasadTokenButton = (donation) => {
-    return donation.donatedAs !== "child"
-      && donation.mahaprasadFulfillment?.mode !== "none"
-      && !isPratimaDonation(donation)
-      && prasadCollectionModeAsLocalPickup(donation)
-      && import.meta.env.VITE_SHOW_PRASAD_TOKEN_DOWNLOAD_BUTTON === "true";
-  };
-
-  const totalPacketCount = (donation) => {
-    if (!donation || !donation.list || donation.list.length === 0) return 0;
-    return donation.list.reduce((total, item) => total + (item.isPacket ? item.quantity : 0), 0);
-  };
-
-  const totalWeightInGrams = (donation) => {
-    if (!donation || !donation.list || donation.list.length === 0) return 0;
-    return donation.list.reduce((total, item) => total + (item.isPacket ? 0 : item.quantity), 0);
+    return (
+      import.meta.env.VITE_SHOW_PRASAD_TOKEN_DOWNLOAD_BUTTON === "true" &&
+      !isPratimaDonation(donation) &&
+      canDownloadPrasadToken(donation)
+    );
   };
 
   const formattedWeight = (grams) => {
@@ -301,8 +295,8 @@ const DonationSection = () => {
   };
 
   const quantityToDisplay = (donation) => {
-    const totalWeightInGm = totalWeightInGrams(donation);
-    const totalPackets = totalPacketCount(donation);
+    const { grams: totalWeightInGm, packets: totalPackets } =
+      getPrasadQuantities(donation);
     let result = "";
     const totalWeight = formattedWeight(totalWeightInGm);
     if (totalWeightInGm > 0) {
